@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SD-Vault v2</title>
+    <!-- Modern Google Font -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <link rel="stylesheet" href="styles.css" />
+    <script type="module" src="/main.js" defer></script>
+  </head>
+
+  <body>
+    <div class="app-container">
+      
+      <!-- Top Titlebar / Header -->
+      <header class="app-header">
+        <div class="logo-area">
+          <div class="logo-glow"></div>
+          <i data-lucide="shield" class="logo-icon"></i>
+          <h1>SD-Vault <span class="version-tag">v2.0</span></h1>
+        </div>
+        <p class="subtitle">Déchargement intelligent & archivage de médias</p>
+      </header>
+
+      <!-- Path Settings Panel -->
+      <section class="settings-panel card">
+        <div class="input-group">
+          <label for="source-path"><i data-lucide="folder-search"></i> Dossier Source (Carte SD)</label>
+          <div class="input-with-action">
+            <input type="text" id="source-path" placeholder="Sélectionner ou coller le dossier source..." />
+            <button id="btn-select-source" class="btn btn-primary" title="Parcourir..."><i data-lucide="folder-open"></i></button>
+            <button id="btn-scan" class="btn btn-accent btn-glow"><i data-lucide="refresh-cw"></i> Scanner</button>
+          </div>
+        </div>
+
+        <div class="input-group">
+          <label for="dest-path"><i data-lucide="folder-archive"></i> Dossier de Destination (Archivage)</label>
+          <div class="input-with-action">
+            <input type="text" id="dest-path" placeholder="Sélectionner ou coller le dossier de destination..." />
+            <button id="btn-select-dest" class="btn btn-primary" title="Parcourir..."><i data-lucide="folder-open"></i></button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Main Visual Workspace -->
+      <main class="workspace-area">
+        
+        <!-- Empty State / Welcome Screen -->
+        <div id="empty-state" class="empty-state-container card">
+          <div class="welcome-box">
+            <div class="pulse-icon">
+              <i data-lucide="images"></i>
+            </div>
+            <h2>Bienvenue dans SD-Vault v2</h2>
+            <p>Spécifiez les chemins source et destination ci-dessus pour commencer le déchargement de vos photos et vidéos.</p>
+          </div>
+        </div>
+
+        <!-- Scanning Loader -->
+        <div id="scan-loader" class="loader-container hidden">
+          <div class="spinner"></div>
+          <p>Analyse des métadonnées EXIF et structuration de la timeline...</p>
+          <div class="progress-bar-container" style="max-width: 320px; margin: 16px auto 8px auto;">
+            <div id="scan-progress-fill" class="progress-bar-fill"></div>
+          </div>
+          <p id="scan-status-text" style="font-size: 13px; color: var(--text-secondary); word-break: break-all; max-width: 500px; margin: 0 auto; min-height: 1.5em;"></p>
+        </div>
+
+        <!-- Timeline Controls (Toolbar) -->
+        <div id="timeline-controls" class="timeline-controls-bar hidden">
+          <div class="toolbar-group">
+            <button id="btn-select-all" class="btn btn-secondary btn-sm"><i data-lucide="check-square"></i> Sélectionner tout</button>
+            <button id="btn-deselect-all" class="btn btn-secondary btn-sm"><i data-lucide="square"></i> Désélectionner tout</button>
+          </div>
+          <div class="toolbar-group">
+            <button id="btn-global-both" class="btn btn-secondary btn-sm" title="Mettre toutes les photos en RAW+JPEG"><i data-lucide="layers"></i> Tout en RAW+JPG</button>
+            <button id="btn-global-jpg" class="btn btn-secondary btn-sm" title="Mettre toutes les photos en JPEG seul"><i data-lucide="file-image"></i> Tout en JPG Seul</button>
+          </div>
+        </div>
+
+        <!-- Timeline Grid (Grouped by Date) -->
+        <div id="timeline-area" class="timeline-container hidden">
+          <!-- Dynamically inserted days -->
+        </div>
+
+      </main>
+
+      <!-- Footer Bar / Action Panel -->
+      <footer class="app-footer card">
+        <div class="selection-summary">
+          <span id="txt-summary">Prêt à scanner</span>
+        </div>
+        <div class="footer-actions">
+          <div class="import-mode-toggle">
+            <button id="btn-mode-copy" class="btn-toggle active" title="Conserver les originaux sur la carte SD (Copier)">
+              <i data-lucide="copy"></i> Copier
+            </button>
+            <button id="btn-mode-cut" class="btn-toggle" title="Supprimer les originaux de la carte SD après transfert (Couper)">
+              <i data-lucide="scissors"></i> Déplacer
+            </button>
+          </div>
+          <button id="btn-import" class="btn btn-accent btn-glow" disabled>
+            <i data-lucide="download-cloud"></i> Lancer l'importation
+          </button>
+        </div>
+      </footer>
+
+      <!-- Glassmorphic Overlay Modals -->
+      <div id="modal-import" class="modal-backdrop hidden">
+        <div class="modal-content card">
+          <div class="modal-header">
+            <h3 id="modal-title"><i data-lucide="loader-2" class="spin"></i> Importation en cours</h3>
+          </div>
+          
+          <div class="modal-body">
+            <!-- Progress Screen -->
+            <div id="import-progress-view">
+              <div class="progress-bar-container">
+                <div id="import-progress-fill" class="progress-bar-fill"></div>
+              </div>
+              <p id="import-status-text">Recopie des fichiers de prise de vue...</p>
+            </div>
+
+            <!-- Report Screen -->
+            <div id="import-report-view" class="hidden">
+              <div class="report-success-icon">
+                <i data-lucide="check-circle-2"></i>
+              </div>
+              <h4>Importation terminée avec succès !</h4>
+              <div class="report-stats">
+                <div class="stat-card">
+                  <span class="stat-val" id="stat-copied">0</span>
+                  <span class="stat-label">Fichiers copiés</span>
+                </div>
+                <div class="stat-card">
+                  <span class="stat-val" id="stat-favs">0</span>
+                  <span class="stat-label">Favoris (Hardlinks)</span>
+                </div>
+                <div class="stat-card">
+                  <span class="stat-val" id="stat-saved">0 MB</span>
+                  <span class="stat-label">Espace disque économisé</span>
+                </div>
+              </div>
+              <p class="report-desc">Les fichiers favoris ont été liés par lien matériel (Hardlinks) dans le sous-dossier <code>favoris/</code>, n'occupant aucun espace supplémentaire.</p>
+            </div>
+          </div>
+
+          <div class="modal-footer">
+            <button id="btn-modal-close" class="btn btn-secondary hidden">Fermer</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Glassmorphic Lightbox Modal -->
+      <div id="modal-lightbox" class="modal-backdrop hidden">
+        <button id="btn-lightbox-close" class="lightbox-nav-btn close-btn" title="Fermer (Échap ou Clic extérieur)"><i data-lucide="x"></i></button>
+        <button id="btn-lightbox-prev" class="lightbox-nav-btn prev-btn" title="Précédent (←)"><i data-lucide="chevron-left"></i></button>
+        
+        <div class="lightbox-content">
+          <img id="lightbox-img" class="lightbox-image" src="" alt="Aperçu grand format" />
+          <video id="lightbox-video" class="lightbox-video hidden" controls autoplay src=""></video>
+          <div class="lightbox-meta">
+            <div class="meta-header-row">
+              <span id="lightbox-filename" class="meta-title"></span>
+              <div class="lightbox-actions">
+                <input type="checkbox" id="btn-lightbox-select" class="item-checkbox" title="Sélectionner pour l'import (Espace)" />
+                <button id="btn-lightbox-star" class="btn-star" title="Ajouter aux favoris (F)">
+                  <i data-lucide="star"></i>
+                </button>
+              </div>
+            </div>
+            <div id="lightbox-stack-control" class="stack-mode-pill hidden">
+              <span class="mode-opt" data-mode="both">RAW+JPG</span>
+              <span class="mode-opt" data-mode="jpg">JPG Seul</span>
+            </div>
+            <span id="lightbox-details" class="meta-desc"></span>
+          </div>
+        </div>
+        
+        <button id="btn-lightbox-next" class="lightbox-nav-btn next-btn" title="Suivant (→)"><i data-lucide="chevron-right"></i></button>
+      </div>
+
+    </div>
+  </body>
+</html>

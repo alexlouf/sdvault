@@ -19,6 +19,7 @@ struct MediaFile {
     size: u64,
     file_type: String,
     date: String,
+    timestamp: u64, // Epoch time in milliseconds (for sub-second burst precision)
     thumbnail_url: String,
 }
 
@@ -132,33 +133,63 @@ fn get_raf_thumbnail(path: &Path) -> Option<Vec<u8>> {
         
     Some(buffer[jpeg_start..jpeg_end].to_vec())
 }
-// Extract capture date from EXIF or fall back to file metadata
-fn get_capture_date(path: &Path, file_type: &str, metadata: &fs::Metadata) -> Option<String> {
-    // 1. Try to read EXIF for image formats using seekable BufReader (skip videos)
+// Extract capture date (YYYY-MM-DD) and UNIX timestamp in milliseconds (with EXIF SubSecTime precision)
+fn get_capture_info(path: &Path, file_type: &str, metadata: &fs::Metadata) -> (String, u64) {
     if file_type != "video" {
         if let Ok(file) = fs::File::open(path) {
             let mut reader = BufReader::new(file);
             if let Ok(exifreader) = exif::Reader::new().read_from_container(&mut reader) {
                 if let Some(field) = exifreader.get_field(exif::Tag::DateTimeOriginal, exif::In::PRIMARY) {
-                    let date_val = field.display_value().to_string();
-                    if date_val.len() >= 10 {
-                        let date_part = date_val.chars().take(10).collect::<String>().replace(':', "-");
-                        if date_part.chars().filter(|&c| c == '-').count() == 2 {
-                            return Some(date_part);
-                        }
+                    let val_str = field.display_value().to_string();
+                    let date_part = if val_str.len() >= 10 {
+                        val_str.chars().take(10).collect::<String>().replace(':', "-")
+                    } else {
+                        "Unknown-Date".to_string()
+                    };
+
+                    // Try parsing full datetime for base seconds
+                    let mut timestamp_sec = 0u64;
+                    if let Ok(naive) = chrono::NaiveDateTime::parse_from_str(&val_str, "%Y-%m-%d %H:%M:%S") {
+                        timestamp_sec = naive.and_utc().timestamp() as u64;
+                    } else if let Ok(naive) = chrono::NaiveDateTime::parse_from_str(&val_str, "%Y:%m:%d %H:%M:%S") {
+                        timestamp_sec = naive.and_utc().timestamp() as u64;
+                    }
+
+                    if timestamp_sec > 0 {
+                        // Extract SubSecTimeOriginal for sub-second precision (millisecond resolution)
+                        let subsec_ms = if let Some(sub_field) = exifreader.get_field(exif::Tag::SubSecTimeOriginal, exif::In::PRIMARY)
+                            .or_else(|| exifreader.get_field(exif::Tag::SubSecTime, exif::In::PRIMARY)) {
+                            let s = sub_field.display_value().to_string();
+                            let digits: String = s.chars().filter(|c| c.is_ascii_digit()).collect();
+                            if digits.len() == 1 {
+                                digits.parse::<u64>().unwrap_or(0) * 100
+                            } else if digits.len() == 2 {
+                                digits.parse::<u64>().unwrap_or(0) * 10
+                            } else if digits.len() >= 3 {
+                                digits[..3].parse::<u64>().unwrap_or(0)
+                            } else {
+                                0
+                            }
+                        } else {
+                            0
+                        };
+
+                        return (date_part, timestamp_sec * 1000 + subsec_ms);
                     }
                 }
             }
         }
     }
 
-    // 2. Fallback to system metadata creation/modification time
+    // Fallback to system metadata creation/modification time
     if let Ok(system_time) = metadata.created().or_else(|_| metadata.modified()) {
         let datetime: chrono::DateTime<chrono::Local> = system_time.into();
-        return Some(datetime.format("%Y-%m-%d").to_string());
+        let date_str = datetime.format("%Y-%m-%d").to_string();
+        let ts_ms = system_time.duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0);
+        return (date_str, ts_ms);
     }
 
-    None
+    ("Unknown-Date".to_string(), 0)
 }
 
 // Classify file based on its extension
@@ -240,7 +271,7 @@ async fn scan_source(app: tauri::AppHandle, source_path: String) -> Result<HashM
                 return None;
             }
 
-            let date = get_capture_date(&path, &file_type, &metadata).unwrap_or_else(|| "Unknown-Date".to_string());
+            let (date, timestamp) = get_capture_info(&path, &file_type, &metadata);
             let thumbnail_url = if file_type == "video" {
                 "".to_string()
             } else {
@@ -266,6 +297,7 @@ async fn scan_source(app: tauri::AppHandle, source_path: String) -> Result<HashM
                 size,
                 file_type,
                 date,
+                timestamp,
                 thumbnail_url,
             })
         })

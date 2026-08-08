@@ -185,6 +185,81 @@
         <button id="btn-lightbox-next" class="lightbox-nav-btn next-btn" title="Suivant (→)"><i data-lucide="chevron-right"></i></button>
       </div>
 
+      <!-- Glassmorphic Burst Inspector Modal -->
+      <div id="modal-burst-inspector" class="modal-backdrop hidden">
+        <div class="burst-inspector-container card">
+          <div class="burst-inspector-header">
+            <div class="burst-title-group">
+              <i data-lucide="zap" class="burst-header-icon"></i>
+              <div>
+                <h3 id="burst-inspector-title">Visionneuse de Rafale</h3>
+                <span id="burst-inspector-subtitle" class="burst-subtitle"></span>
+              </div>
+            </div>
+            <div class="burst-view-modes">
+              <button id="btn-burst-view-solo" class="btn-toggle active" title="Vue photo seule">
+                <i data-lucide="image"></i> Solo
+              </button>
+              <button id="btn-burst-view-split" class="btn-toggle" title="Comparaison côte à côte (Comparatif)">
+                <i data-lucide="columns-2"></i> Côte à côte
+              </button>
+              <button id="btn-burst-close" class="lightbox-nav-btn close-btn-inline" title="Fermer (Échap)">
+                <i data-lucide="x"></i>
+              </button>
+            </div>
+          </div>
+
+          <div class="burst-inspector-body">
+            <!-- Solo Stage -->
+            <div id="burst-stage-solo" class="burst-stage">
+              <img id="burst-solo-img" class="burst-stage-img" src="" alt="Photo active de la rafale" />
+            </div>
+
+            <!-- Split Stage (Side-by-side comparison) -->
+            <div id="burst-stage-split" class="burst-stage split-stage hidden">
+              <div class="split-pane">
+                <span class="pane-badge">Photo active (<span id="burst-split-active-num">1</span>)</span>
+                <img id="burst-split-img-active" class="burst-stage-img" src="" alt="Photo active" />
+              </div>
+              <div class="split-pane">
+                <span class="pane-badge badge-cover">Photo de référence (Dernière)</span>
+                <img id="burst-split-img-ref" class="burst-stage-img" src="" alt="Photo de référence (dernière)" />
+              </div>
+            </div>
+          </div>
+
+          <!-- Quick Action Toolbar for Burst -->
+          <div class="burst-quick-actions">
+            <div class="action-left">
+              <span id="burst-active-meta" class="burst-meta-text"></span>
+            </div>
+            <div class="action-buttons">
+              <button id="btn-burst-keep-last" class="btn btn-secondary btn-sm" title="Conserver uniquement la dernière photo de la rafale">
+                <i data-lucide="target"></i> Ne garder que la dernière
+              </button>
+              <button id="btn-burst-keep-starred" class="btn btn-secondary btn-sm" title="Ne garder que les photos étoilées">
+                <i data-lucide="star"></i> Garder les favoris
+              </button>
+              <button id="btn-burst-select-all" class="btn btn-secondary btn-sm">
+                <i data-lucide="check-square"></i> Tout sélectionner
+              </button>
+              <button id="btn-burst-deselect-all" class="btn btn-secondary btn-sm">
+                <i data-lucide="square"></i> Tout décocher
+              </button>
+            </div>
+          </div>
+
+          <!-- Bottom Filmstrip Thumbnails Bar -->
+          <div class="burst-filmstrip-wrapper">
+            <button id="btn-burst-prev" class="burst-nav-btn" title="Photo précédente (←)"><i data-lucide="chevron-left"></i></button>
+            <div id="burst-filmstrip" class="burst-filmstrip-track">
+              <!-- Dynamically populated thumbnail tiles -->
+            </div>
+            <button id="btn-burst-next" class="burst-nav-btn" title="Photo suivante (→)"><i data-lucide="chevron-right"></i></button>
+          </div>
+        </div>
+      </div>
+
     </div>
   </body>
 </html>

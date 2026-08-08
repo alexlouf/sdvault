@@ -9,14 +9,20 @@ if (isTauri) {
 // ----------------------------------------------------
 // Application State
 // ----------------------------------------------------
-let scannedDays = {};      // { [date]: MediaFile[] }
+let scannedDays = {};          // { [date]: MediaFile[] }
 let selectedFiles = new Set(); // Set of absolute file paths
 let favoriteFiles = new Set(); // Set of absolute file paths
-let daySuffixes = {};      // { [date]: string }
+let daySuffixes = {};          // { [date]: string }
 let deleteSourceAfterImport = false; // Toggle for Copy (false) vs Cut (true)
+let stackModes = {};           // { [baseKey]: 'both' | 'jpg' }
+
+// Burst Inspector State
+let currentBurstItem = null;
+let activeBurstIdx = 0;
+let burstViewMode = 'solo';    // 'solo' | 'split'
 
 // ----------------------------------------------------
-// UI Elements
+// UI Elements References
 // ----------------------------------------------------
 let elSourcePath, elDestPath, elBtnScan, elBtnImport, elTimelineArea;
 let elEmptyState, elScanLoader, elTxtSummary;
@@ -26,15 +32,25 @@ let elStatCopied, elStatFavs, elStatSaved;
 let elBtnSelectSource, elBtnSelectDest;
 let elTimelineControls, elBtnSelectAll, elBtnDeselectAll;
 let elBtnModeCopy, elBtnModeCut, elBtnGlobalBoth, elBtnGlobalJpg;
+
+// Lightbox Elements
 let elModalLightbox, elLightboxImg, elLightboxVideo, elLightboxStackControl;
 let elLightboxFilename, elLightboxDetails;
 let elBtnLightboxClose, elBtnLightboxPrev, elBtnLightboxNext;
 let elBtnLightboxSelect, elBtnLightboxStar;
 let lightboxItems = [];
 let lightboxIndex = -1;
-let stackModes = {}; // { [baseKey]: 'both' | 'jpg' }
 
-// Initialize Lucide icons
+// Burst Inspector Elements
+let elModalBurstInspector, elBurstInspectorTitle, elBurstInspectorSubtitle;
+let elBtnBurstViewSolo, elBtnBurstViewSplit, elBtnBurstClose;
+let elBurstStageSolo, elBurstStageSplit, elBurstSoloImg;
+let elBurstSplitImgActive, elBurstSplitImgRef, elBurstSplitActiveNum;
+let elBurstActiveMeta, elBtnBurstKeepLast, elBtnBurstKeepStarred;
+let elBtnBurstSelectAll, elBtnBurstDeselectAll;
+let elBtnBurstPrev, elBtnBurstNext, elBurstFilmstrip;
+
+// Refresh Lucide icons
 function refreshIcons() {
   if (window.lucide) {
     window.lucide.createIcons();
@@ -51,20 +67,23 @@ function formatBytes(bytes, decimals = 1) {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
 }
 
-// Get modern mock data for web simulation
+// Get modern mock data for web simulation with burst series
 function getMockData() {
   const today = new Date().toISOString().split('T')[0];
   const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
   const prevDay = new Date(Date.now() - 172800000).toISOString().split('T')[0];
+  const nowTs = Math.floor(Date.now() / 1000);
 
   return {
     [today]: [
+      // Single photo pair
       {
         path: `C:/MockSD/DCIM/DSC01928.ARW`,
         name: "DSC01928.ARW",
         size: 44040192,
         file_type: "raw",
         date: today,
+        timestamp: nowTs - 600,
         thumbnail_url: "https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=400&q=80"
       },
       {
@@ -73,30 +92,113 @@ function getMockData() {
         size: 8388608,
         file_type: "jpg",
         date: today,
+        timestamp: nowTs - 600,
         thumbnail_url: "https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=400&q=80"
       },
+
+      // Burst series (5 photos taken 1 second apart)
       {
-        path: `C:/MockSD/DCIM/DSC01929.ARW`,
-        name: "DSC01929.ARW",
-        size: 42991616,
+        path: `C:/MockSD/DCIM/DSC01930.ARW`,
+        name: "DSC01930.ARW",
+        size: 44100000,
         file_type: "raw",
         date: today,
+        timestamp: nowTs - 200,
+        thumbnail_url: "https://images.unsplash.com/photo-1517649763962-0c623266010b?w=400&q=80"
+      },
+      {
+        path: `C:/MockSD/DCIM/DSC01930.JPG`,
+        name: "DSC01930.JPG",
+        size: 8100000,
+        file_type: "jpg",
+        date: today,
+        timestamp: nowTs - 200,
+        thumbnail_url: "https://images.unsplash.com/photo-1517649763962-0c623266010b?w=400&q=80"
+      },
+
+      {
+        path: `C:/MockSD/DCIM/DSC01931.ARW`,
+        name: "DSC01931.ARW",
+        size: 44200000,
+        file_type: "raw",
+        date: today,
+        timestamp: nowTs - 199,
+        thumbnail_url: "https://images.unsplash.com/photo-1461896836934-ffe607ba8211?w=400&q=80"
+      },
+      {
+        path: `C:/MockSD/DCIM/DSC01931.JPG`,
+        name: "DSC01931.JPG",
+        size: 8200000,
+        file_type: "jpg",
+        date: today,
+        timestamp: nowTs - 199,
+        thumbnail_url: "https://images.unsplash.com/photo-1461896836934-ffe607ba8211?w=400&q=80"
+      },
+
+      {
+        path: `C:/MockSD/DCIM/DSC01932.ARW`,
+        name: "DSC01932.ARW",
+        size: 44300000,
+        file_type: "raw",
+        date: today,
+        timestamp: nowTs - 198,
+        thumbnail_url: "https://images.unsplash.com/photo-1530549387789-4c1017266635?w=400&q=80"
+      },
+      {
+        path: `C:/MockSD/DCIM/DSC01932.JPG`,
+        name: "DSC01932.JPG",
+        size: 8300000,
+        file_type: "jpg",
+        date: today,
+        timestamp: nowTs - 198,
+        thumbnail_url: "https://images.unsplash.com/photo-1530549387789-4c1017266635?w=400&q=80"
+      },
+
+      {
+        path: `C:/MockSD/DCIM/DSC01933.ARW`,
+        name: "DSC01933.ARW",
+        size: 44150000,
+        file_type: "raw",
+        date: today,
+        timestamp: nowTs - 197,
+        thumbnail_url: "https://images.unsplash.com/photo-1519315901367-f34ff9154487?w=400&q=80"
+      },
+      {
+        path: `C:/MockSD/DCIM/DSC01933.JPG`,
+        name: "DSC01933.JPG",
+        size: 8150000,
+        file_type: "jpg",
+        date: today,
+        timestamp: nowTs - 197,
+        thumbnail_url: "https://images.unsplash.com/photo-1519315901367-f34ff9154487?w=400&q=80"
+      },
+
+      {
+        path: `C:/MockSD/DCIM/DSC01934.ARW`,
+        name: "DSC01934.ARW",
+        size: 44400000,
+        file_type: "raw",
+        date: today,
+        timestamp: nowTs - 196,
         thumbnail_url: "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=400&q=80"
       },
       {
-        path: `C:/MockSD/DCIM/DSC01929.JPG`,
-        name: "DSC01929.JPG",
-        size: 7130316,
+        path: `C:/MockSD/DCIM/DSC01934.JPG`,
+        name: "DSC01934.JPG",
+        size: 8400000,
         file_type: "jpg",
         date: today,
+        timestamp: nowTs - 196,
         thumbnail_url: "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=400&q=80"
       },
+
       {
         path: `C:/MockSD/DCIM/MV00102.MP4`,
         name: "MV00102.MP4",
         size: 335544320,
         file_type: "video",
         date: today,
+        timestamp: nowTs - 50,
         thumbnail_url: ""
       }
     ],
@@ -107,6 +209,7 @@ function getMockData() {
         size: 45097152,
         file_type: "raw",
         date: yesterday,
+        timestamp: nowTs - 86400,
         thumbnail_url: "https://images.unsplash.com/photo-1682687220063-4742bd7fd538?w=400&q=80"
       },
       {
@@ -115,6 +218,7 @@ function getMockData() {
         size: 8178892,
         file_type: "jpg",
         date: yesterday,
+        timestamp: nowTs - 86400,
         thumbnail_url: "https://images.unsplash.com/photo-1682687220063-4742bd7fd538?w=400&q=80"
       },
       {
@@ -123,6 +227,7 @@ function getMockData() {
         size: 188743680,
         file_type: "video",
         date: yesterday,
+        timestamp: nowTs - 86300,
         thumbnail_url: ""
       }
     ],
@@ -133,6 +238,7 @@ function getMockData() {
         size: 43620761,
         file_type: "raw",
         date: prevDay,
+        timestamp: nowTs - 172800,
         thumbnail_url: "https://images.unsplash.com/photo-1470071459604-3b5ec3a7fe05?w=400&q=80"
       },
       {
@@ -141,10 +247,152 @@ function getMockData() {
         size: 7864320,
         file_type: "jpg",
         date: prevDay,
+        timestamp: nowTs - 172800,
         thumbnail_url: "https://images.unsplash.com/photo-1470071459604-3b5ec3a7fe05?w=400&q=80"
       }
     ]
   };
+}
+
+// ----------------------------------------------------
+// Grouping Engine: RAW+JPG pairing & Burst Stacking
+// ----------------------------------------------------
+
+function groupDayItems(files) {
+  // 1. Group by base filename to pair RAW + JPG
+  const groupedByBase = {};
+  files.forEach(file => {
+    const dotIndex = file.name.lastIndexOf('.');
+    const baseName = dotIndex !== -1 ? file.name.substring(0, dotIndex) : file.name;
+    const baseKey = baseName.toLowerCase();
+    
+    if (!groupedByBase[baseKey]) {
+      groupedByBase[baseKey] = [];
+    }
+    groupedByBase[baseKey].push(file);
+  });
+
+  const baseItems = [];
+  Object.values(groupedByBase).forEach(group => {
+    if (group.length === 2) {
+      const rawFile = group.find(f => f.file_type === 'raw');
+      const jpgFile = group.find(f => f.file_type === 'jpg');
+      if (rawFile && jpgFile) {
+        const dotIdx = jpgFile.name.lastIndexOf('.');
+        const bName = dotIdx !== -1 ? jpgFile.name.substring(0, dotIdx) : jpgFile.name;
+        const timestamp = jpgFile.timestamp || rawFile.timestamp || 0;
+        baseItems.push({
+          type: 'stack',
+          name: `${bName} (RAW+JPG)`,
+          files: [rawFile, jpgFile],
+          rawFile,
+          jpgFile,
+          file_type: 'raw+jpg',
+          size: rawFile.size + jpgFile.size,
+          date: jpgFile.date,
+          timestamp,
+          thumbnail_url: jpgFile.thumbnail_url || rawFile.thumbnail_url
+        });
+        return;
+      }
+    }
+    
+    group.forEach(file => {
+      baseItems.push({
+        type: 'single',
+        name: file.name,
+        files: [file],
+        file_type: file.file_type,
+        size: file.size,
+        date: file.date,
+        timestamp: file.timestamp || 0,
+        thumbnail_url: file.thumbnail_url
+      });
+    });
+  });
+
+  // Sort base items by timestamp ascending
+  baseItems.sort((a, b) => {
+    if (a.timestamp && b.timestamp && a.timestamp !== b.timestamp) {
+      return a.timestamp - b.timestamp;
+    }
+    return a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' });
+  });
+
+  // 2. Group consecutive items taken <= 1 second apart into BurstStacks
+  const finalItems = [];
+  let currentBurst = [];
+
+  for (let i = 0; i < baseItems.length; i++) {
+    const item = baseItems[i];
+    
+    // Videos do not participate in burst stacking
+    if (item.file_type === 'video') {
+      if (currentBurst.length > 0) {
+        pushBurstOrSingle(currentBurst, finalItems);
+        currentBurst = [];
+      }
+      finalItems.push(item);
+      continue;
+    }
+
+    if (currentBurst.length === 0) {
+      currentBurst.push(item);
+    } else {
+      const prevItem = currentBurst[currentBurst.length - 1];
+      // Time difference in milliseconds (EXIF SubSecTime precision)
+      const timeDiffMs = (item.timestamp && prevItem.timestamp) ? Math.abs(item.timestamp - prevItem.timestamp) : 999999;
+      
+      // Strict burst condition: consecutive shots taken within <= 1000ms (1.0 second) of each other
+      const isBurstPair = timeDiffMs <= 1000;
+
+      if (isBurstPair) {
+        currentBurst.push(item);
+      } else {
+        pushBurstOrSingle(currentBurst, finalItems);
+        currentBurst = [item];
+      }
+    }
+  }
+
+  if (currentBurst.length > 0) {
+    pushBurstOrSingle(currentBurst, finalItems);
+  }
+
+  return finalItems;
+}
+
+function pushBurstOrSingle(burstList, targetArray) {
+  if (burstList.length >= 2) {
+    const coverIdx = burstList.length - 1; // Default cover photo = LAST photo of the burst sequence
+    const coverItem = burstList[coverIdx];
+    const totalSize = burstList.reduce((acc, it) => acc + it.size, 0);
+
+    targetArray.push({
+      type: 'burst',
+      name: `Rafale (${burstList.length} photos)`,
+      items: burstList,
+      coverIndex: coverIdx,
+      file_type: 'burst',
+      date: coverItem.date,
+      timestamp: coverItem.timestamp,
+      size: totalSize,
+      thumbnail_url: coverItem.thumbnail_url
+    });
+  } else {
+    targetArray.push(burstList[0]);
+  }
+}
+
+function isFilenameSequence(name1, name2) {
+  const num1 = name1.match(/\d+/g);
+  const num2 = name2.match(/\d+/g);
+  if (num1 && num2) {
+    const n1 = parseInt(num1[num1.length - 1], 10);
+    const n2 = parseInt(num2[num2.length - 1], 10);
+    return n2 - n1 === 1;
+  }
+  return false;
 }
 
 // ----------------------------------------------------
@@ -169,47 +417,36 @@ function renderTimeline() {
 
   dates.forEach(date => {
     const files = scannedDays[date];
+    const dayItems = groupDayItems(files);
+
     const dayBlock = document.createElement('div');
     dayBlock.className = 'day-block card';
     dayBlock.dataset.date = date;
 
-    // Suffix init
     if (!daySuffixes[date]) daySuffixes[date] = "";
 
-    // Count types
     const jpgs = files.filter(f => f.file_type === 'jpg').length;
     const raws = files.filter(f => f.file_type === 'raw').length;
     const videos = files.filter(f => f.file_type === 'video').length;
+    const burstsCount = dayItems.filter(it => it.type === 'burst').length;
     
     let summaryText = [];
     if (jpgs > 0) summaryText.push(`${jpgs} JPG`);
     if (raws > 0) summaryText.push(`${raws} RAW`);
     if (videos > 0) summaryText.push(`${videos} Vidéo${videos > 1 ? 's' : ''}`);
+    if (burstsCount > 0) summaryText.push(`${burstsCount} Rafale${burstsCount > 1 ? 's' : ''}`);
 
-    // Group files by base name to evaluate if all visual items are selected
-    const renderGroupedByBase = {};
-    files.forEach(file => {
-      const dotIndex = file.name.lastIndexOf('.');
-      const baseName = dotIndex !== -1 ? file.name.substring(0, dotIndex) : file.name;
-      const baseKey = baseName.toLowerCase();
-      if (!renderGroupedByBase[baseKey]) renderGroupedByBase[baseKey] = [];
-      renderGroupedByBase[baseKey].push(file);
-    });
-
-    const isAllDaySelected = Object.values(renderGroupedByBase).every(group => {
-      if (group.length === 2) {
-        const rawFile = group.find(f => f.file_type === 'raw');
-        const jpgFile = group.find(f => f.file_type === 'jpg');
-        if (rawFile && jpgFile) {
-          return selectedFiles.has(jpgFile.path);
-        }
+    const isAllDaySelected = dayItems.every(item => {
+      if (item.type === 'burst') {
+        const coverItem = item.items[item.coverIndex];
+        return coverItem.type === 'stack' ? selectedFiles.has(coverItem.jpgFile.path) : selectedFiles.has(coverItem.files[0].path);
+      } else if (item.type === 'stack') {
+        return selectedFiles.has(item.jpgFile.path);
       }
-      return group.every(f => selectedFiles.has(f.path));
+      return selectedFiles.has(item.files[0].path);
     });
 
-    const dayHasStacks = Object.values(renderGroupedByBase).some(group => {
-      return group.length === 2 && group.some(f => f.file_type === 'raw') && group.some(f => f.file_type === 'jpg');
-    });
+    const dayHasStacks = dayItems.some(it => it.type === 'stack' || (it.type === 'burst' && it.items.some(sub => sub.type === 'stack')));
 
     let dayStackToggleHTML = '';
     if (dayHasStacks) {
@@ -244,172 +481,12 @@ function renderTimeline() {
 
     const grid = dayBlock.querySelector('.media-grid');
 
-    // Group files by base name (case-insensitive) to create RAW+JPEG stacks
-    const groupedByBase = {};
-    files.forEach(file => {
-      const dotIndex = file.name.lastIndexOf('.');
-      const baseName = dotIndex !== -1 ? file.name.substring(0, dotIndex) : file.name;
-      const baseKey = baseName.toLowerCase();
-      
-      if (!groupedByBase[baseKey]) {
-        groupedByBase[baseKey] = [];
-      }
-      groupedByBase[baseKey].push(file);
-    });
-
-    const stacks = [];
-    Object.values(groupedByBase).forEach(group => {
-      if (group.length === 2) {
-        const rawFile = group.find(f => f.file_type === 'raw');
-        const jpgFile = group.find(f => f.file_type === 'jpg');
-        if (rawFile && jpgFile) {
-          const dotIdx = jpgFile.name.lastIndexOf('.');
-          const bName = dotIdx !== -1 ? jpgFile.name.substring(0, dotIdx) : jpgFile.name;
-          stacks.push({
-            type: 'stack',
-            name: `${bName} (RAW+JPG)`,
-            files: [rawFile, jpgFile],
-            rawFile,
-            jpgFile,
-            file_type: 'raw+jpg',
-            size: rawFile.size + jpgFile.size,
-            date: jpgFile.date,
-            thumbnail_url: jpgFile.thumbnail_url || rawFile.thumbnail_url
-          });
-          return;
-        }
-      }
-      
-      group.forEach(file => {
-        stacks.push({
-          type: 'single',
-          name: file.name,
-          files: [file],
-          file_type: file.file_type,
-          size: file.size,
-          date: file.date,
-          thumbnail_url: file.thumbnail_url
-        });
-      });
-    });
-
-    stacks.forEach(item => {
-      const isSelected = item.type === 'stack' 
-        ? selectedFiles.has(item.jpgFile.path) 
-        : selectedFiles.has(item.files[0].path);
-      const isStarred = item.type === 'stack'
-        ? favoriteFiles.has(item.jpgFile.path)
-        : favoriteFiles.has(item.files[0].path);
-
-      const card = document.createElement('div');
-      card.className = `file-card ${isSelected ? 'selected' : ''} ${item.type === 'stack' ? 'card-stacked' : ''}`;
-      card.dataset.path = item.type === 'stack' ? item.jpgFile.path : item.files[0].path;
-      
-      let previewHTML = '';
-      if (item.file_type === 'video') {
-        previewHTML = `
-          <div class="media-placeholder">
-            <i data-lucide="video"></i>
-            <span>Vidéo</span>
-          </div>
-        `;
-      } else if (item.thumbnail_url) {
-        previewHTML = `<img src="${item.thumbnail_url}" class="media-preview" alt="${item.name}" loading="lazy" />`;
+    dayItems.forEach(item => {
+      if (item.type === 'burst') {
+        renderBurstCard(item, grid);
       } else {
-        previewHTML = `
-          <div class="media-placeholder">
-            <i data-lucide="image"></i>
-            <span>Image</span>
-          </div>
-        `;
+        renderStandardCard(item, grid);
       }
-
-      let displaySize = item.size;
-      let displayBadgeType = item.file_type;
-      let modePillHTML = '';
-
-      if (item.type === 'stack') {
-        const baseKey = item.jpgFile.name.substring(0, item.jpgFile.name.lastIndexOf('.')).toLowerCase();
-        const mode = stackModes[baseKey] || 'both';
-        if (mode === 'jpg') {
-          displaySize = item.jpgFile.size;
-          displayBadgeType = 'jpg';
-        }
-        
-        modePillHTML = `
-          <div class="stack-mode-pill" data-basekey="${baseKey}">
-            <span class="mode-opt ${mode === 'both' ? 'active' : ''}" data-mode="both" title="Importer RAW + JPG">RAW+JPG</span>
-            <span class="mode-opt ${mode === 'jpg' ? 'active' : ''}" data-mode="jpg" title="Importer JPEG seul">JPG</span>
-          </div>
-        `;
-      }
-
-      card.innerHTML = `
-        ${previewHTML}
-        <span class="type-badge badge-${displayBadgeType.replace('+', '-')}">${displayBadgeType}</span>
-        <div class="card-overlay">
-          <div class="overlay-top">
-            <input type="checkbox" class="item-checkbox" ${isSelected ? 'checked' : ''} />
-            <div style="display: flex; gap: 8px; align-items: center;">
-              <button class="btn-preview-zoom" title="Agrandir (Double-clic)">
-                <i data-lucide="eye"></i>
-              </button>
-              <button class="btn-star ${isStarred ? 'starred' : ''}">
-                <i data-lucide="star"></i>
-              </button>
-            </div>
-          </div>
-          <div class="overlay-bottom">
-            <span class="file-name" title="${item.name}">${item.name}</span>
-            <div class="stack-row">
-              <span class="file-size">${formatBytes(displaySize)}</span>
-              ${modePillHTML}
-            </div>
-          </div>
-        </div>
-      `;
-
-      // Event handlers on File Card
-      card.addEventListener('click', (e) => {
-        if (e.target.closest('input') || e.target.closest('button') || e.target.closest('.stack-mode-pill')) return;
-        toggleItemSelection(item, card);
-      });
-
-      // Double click card opens lightbox
-      card.addEventListener('dblclick', () => {
-        lightboxItems = getTimelineItems();
-        const currentIdx = lightboxItems.findIndex(x => x.files.some(f => item.files.some(i => i.path === f.path)));
-        openLightbox(currentIdx);
-      });
-
-      card.querySelector('.item-checkbox').addEventListener('change', () => {
-        toggleItemSelection(item, card);
-      });
-
-      card.querySelector('.btn-star').addEventListener('click', (e) => {
-        e.stopPropagation();
-        toggleItemFavorite(item, card.querySelector('.btn-star'));
-      });
-
-      card.querySelector('.btn-preview-zoom').addEventListener('click', (e) => {
-        e.stopPropagation();
-        lightboxItems = getTimelineItems();
-        const currentIdx = lightboxItems.findIndex(x => x.files.some(f => item.files.some(i => i.path === f.path)));
-        openLightbox(currentIdx);
-      });
-
-      if (item.type === 'stack') {
-        card.querySelectorAll('.stack-mode-pill .mode-opt').forEach(opt => {
-          opt.addEventListener('click', (e) => {
-            e.stopPropagation();
-            const baseKey = opt.closest('.stack-mode-pill').dataset.basekey;
-            const mode = opt.dataset.mode;
-            setStackMode(baseKey, mode);
-          });
-        });
-      }
-
-      grid.appendChild(card);
     });
 
     // Event handlers on Day Block Header
@@ -435,50 +512,219 @@ function renderTimeline() {
   refreshIcons();
 }
 
-// Select/Deselect files for a specific day block, respecting stack modes
-function selectDayFiles(date, checked) {
-  const files = scannedDays[date];
-  const groupedByBase = {};
+// Render a Standard Single or RAW+JPG Stack Card
+function renderStandardCard(item, grid) {
+  const isSelected = item.type === 'stack' 
+    ? selectedFiles.has(item.jpgFile.path) 
+    : selectedFiles.has(item.files[0].path);
+  const isStarred = item.type === 'stack'
+    ? favoriteFiles.has(item.jpgFile.path)
+    : favoriteFiles.has(item.files[0].path);
+
+  const card = document.createElement('div');
+  card.className = `file-card ${isSelected ? 'selected' : ''} ${item.type === 'stack' ? 'card-stacked' : ''}`;
+  card.dataset.path = item.type === 'stack' ? item.jpgFile.path : item.files[0].path;
   
-  files.forEach(file => {
-    const dotIndex = file.name.lastIndexOf('.');
-    const baseName = dotIndex !== -1 ? file.name.substring(0, dotIndex) : file.name;
-    const baseKey = baseName.toLowerCase();
-    if (!groupedByBase[baseKey]) groupedByBase[baseKey] = [];
-    groupedByBase[baseKey].push(file);
-  });
-  
-  Object.values(groupedByBase).forEach(group => {
-    if (group.length === 2) {
-      const rawFile = group.find(f => f.file_type === 'raw');
-      const jpgFile = group.find(f => f.file_type === 'jpg');
-      if (rawFile && jpgFile) {
-        const baseKey = jpgFile.name.substring(0, jpgFile.name.lastIndexOf('.')).toLowerCase();
-        if (checked) {
-          const mode = stackModes[baseKey] || 'both';
-          selectedFiles.add(jpgFile.path);
-          if (mode === 'both') {
-            selectedFiles.add(rawFile.path);
-          } else {
-            selectedFiles.delete(rawFile.path);
-          }
-        } else {
-          selectedFiles.delete(jpgFile.path);
-          selectedFiles.delete(rawFile.path);
-        }
-        return;
-      }
+  let previewHTML = '';
+  if (item.file_type === 'video') {
+    previewHTML = `
+      <div class="media-placeholder">
+        <i data-lucide="video"></i>
+        <span>Vidéo</span>
+      </div>
+    `;
+  } else if (item.thumbnail_url) {
+    previewHTML = `<img src="${item.thumbnail_url}" class="media-preview" alt="${item.name}" loading="lazy" />`;
+  } else {
+    previewHTML = `
+      <div class="media-placeholder">
+        <i data-lucide="image"></i>
+        <span>Image</span>
+      </div>
+    `;
+  }
+
+  let displaySize = item.size;
+  let displayBadgeType = item.file_type;
+  let modePillHTML = '';
+
+  if (item.type === 'stack') {
+    const baseKey = item.jpgFile.name.substring(0, item.jpgFile.name.lastIndexOf('.')).toLowerCase();
+    const mode = stackModes[baseKey] || 'both';
+    if (mode === 'jpg') {
+      displaySize = item.jpgFile.size;
+      displayBadgeType = 'jpg';
     }
     
-    group.forEach(file => {
-      if (checked) {
-        selectedFiles.add(file.path);
-      } else {
-        selectedFiles.delete(file.path);
-      }
-    });
+    modePillHTML = `
+      <div class="stack-mode-pill" data-basekey="${baseKey}">
+        <span class="mode-opt ${mode === 'both' ? 'active' : ''}" data-mode="both" title="Importer RAW + JPG">RAW+JPG</span>
+        <span class="mode-opt ${mode === 'jpg' ? 'active' : ''}" data-mode="jpg" title="Importer JPEG seul">JPG</span>
+      </div>
+    `;
+  }
+
+  card.innerHTML = `
+    ${previewHTML}
+    <span class="type-badge badge-${displayBadgeType.replace('+', '-')}">${displayBadgeType}</span>
+    <div class="card-overlay">
+      <div class="overlay-top">
+        <input type="checkbox" class="item-checkbox" ${isSelected ? 'checked' : ''} />
+        <div style="display: flex; gap: 8px; align-items: center;">
+          <button class="btn-preview-zoom" title="Agrandir (Double-clic)">
+            <i data-lucide="eye"></i>
+          </button>
+          <button class="btn-star ${isStarred ? 'starred' : ''}">
+            <i data-lucide="star"></i>
+          </button>
+        </div>
+      </div>
+      <div class="overlay-bottom">
+        <span class="file-name" title="${item.name}">${item.name}</span>
+        <div class="stack-row">
+          <span class="file-size">${formatBytes(displaySize)}</span>
+          ${modePillHTML}
+        </div>
+      </div>
+    </div>
+  `;
+
+  card.addEventListener('click', (e) => {
+    if (e.target.closest('input') || e.target.closest('button') || e.target.closest('.stack-mode-pill')) return;
+    toggleItemSelection(item, card);
   });
-  
+
+  card.addEventListener('dblclick', () => {
+    lightboxItems = getTimelineItems();
+    const currentIdx = lightboxItems.findIndex(x => x.files && x.files.some(f => item.files.some(i => i.path === f.path)));
+    openLightbox(currentIdx);
+  });
+
+  card.querySelector('.item-checkbox').addEventListener('change', () => {
+    toggleItemSelection(item, card);
+  });
+
+  card.querySelector('.btn-star').addEventListener('click', (e) => {
+    e.stopPropagation();
+    toggleItemFavorite(item, card.querySelector('.btn-star'));
+  });
+
+  card.querySelector('.btn-preview-zoom').addEventListener('click', (e) => {
+    e.stopPropagation();
+    lightboxItems = getTimelineItems();
+    const currentIdx = lightboxItems.findIndex(x => x.files && x.files.some(f => item.files.some(i => i.path === f.path)));
+    openLightbox(currentIdx);
+  });
+
+  if (item.type === 'stack') {
+    card.querySelectorAll('.stack-mode-pill .mode-opt').forEach(opt => {
+      opt.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const baseKey = opt.closest('.stack-mode-pill').dataset.basekey;
+        const mode = opt.dataset.mode;
+        setStackMode(baseKey, mode);
+      });
+    });
+  }
+
+  grid.appendChild(card);
+}
+
+// Render a Burst Stack Card (showing cover image thumbnail = last photo of burst sequence)
+function renderBurstCard(burstItem, grid) {
+  const coverItem = burstItem.items[burstItem.coverIndex];
+  const isSelected = coverItem.type === 'stack'
+    ? selectedFiles.has(coverItem.jpgFile.path)
+    : selectedFiles.has(coverItem.files[0].path);
+  const isStarred = coverItem.type === 'stack'
+    ? favoriteFiles.has(coverItem.jpgFile.path)
+    : favoriteFiles.has(coverItem.files[0].path);
+
+  const card = document.createElement('div');
+  card.className = `file-card card-burst ${isSelected ? 'selected' : ''}`;
+  card.dataset.path = coverItem.type === 'stack' ? coverItem.jpgFile.path : coverItem.files[0].path;
+
+  let previewHTML = coverItem.thumbnail_url 
+    ? `<img src="${coverItem.thumbnail_url}" class="media-preview" alt="${burstItem.name}" loading="lazy" />`
+    : `<div class="media-placeholder"><i data-lucide="zap"></i><span>Rafale (${burstItem.items.length})</span></div>`;
+
+  card.innerHTML = `
+    ${previewHTML}
+    <span class="type-badge badge-burst"><i data-lucide="zap"></i> Rafale (${burstItem.items.length})</span>
+    <div class="card-overlay">
+      <div class="overlay-top">
+        <input type="checkbox" class="item-checkbox" ${isSelected ? 'checked' : ''} />
+        <div style="display: flex; gap: 8px; align-items: center;">
+          <button class="btn-preview-zoom btn-inspect-trigger" title="Inspecter la rafale">
+            <i data-lucide="eye"></i>
+          </button>
+          <button class="btn-star ${isStarred ? 'starred' : ''}">
+            <i data-lucide="star"></i>
+          </button>
+        </div>
+      </div>
+      <div class="overlay-bottom">
+        <span class="file-name" title="${coverItem.name}">${coverItem.name} <small>(Dernière)</small></span>
+        <div class="stack-row" style="margin-top: 4px;">
+          <span class="file-size">${formatBytes(coverItem.size)}</span>
+          <button class="btn-inspect-burst"><i data-lucide="zap"></i> Inspecter (${burstItem.items.length})</button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  card.addEventListener('click', (e) => {
+    if (e.target.closest('input') || e.target.closest('button')) return;
+    toggleItemSelection(coverItem, card);
+  });
+
+  card.addEventListener('dblclick', () => {
+    openBurstInspector(burstItem);
+  });
+
+  card.querySelector('.item-checkbox').addEventListener('change', () => {
+    toggleItemSelection(coverItem, card);
+  });
+
+  card.querySelector('.btn-star').addEventListener('click', (e) => {
+    e.stopPropagation();
+    toggleItemFavorite(coverItem, card.querySelector('.btn-star'));
+  });
+
+  card.querySelector('.btn-inspect-burst').addEventListener('click', (e) => {
+    e.stopPropagation();
+    openBurstInspector(burstItem);
+  });
+
+  card.querySelector('.btn-inspect-trigger').addEventListener('click', (e) => {
+    e.stopPropagation();
+    openBurstInspector(burstItem);
+  });
+
+  grid.appendChild(card);
+}
+
+// Select/Deselect files for a specific day block
+function selectDayFiles(date, checked) {
+  const files = scannedDays[date];
+  const items = groupDayItems(files);
+
+  items.forEach(item => {
+    if (item.type === 'burst') {
+      item.items.forEach(sub => {
+        sub.files.forEach(f => {
+          if (checked) selectedFiles.add(f.path);
+          else selectedFiles.delete(f.path);
+        });
+      });
+    } else {
+      item.files.forEach(f => {
+        if (checked) selectedFiles.add(f.path);
+        else selectedFiles.delete(f.path);
+      });
+    }
+  });
+
   renderTimeline();
   updateSummary();
 }
@@ -486,10 +732,9 @@ function selectDayFiles(date, checked) {
 // Toggle stack mode: both (RAW+JPG) or jpg (JPG only)
 function setStackMode(baseKey, mode) {
   stackModes[baseKey] = mode;
-  
   let rawFile = null;
   let jpgFile = null;
-  
+
   for (const date of Object.keys(scannedDays)) {
     const files = scannedDays[date];
     const match = files.filter(f => {
@@ -503,7 +748,7 @@ function setStackMode(baseKey, mode) {
       break;
     }
   }
-  
+
   if (rawFile && jpgFile) {
     const isSelected = selectedFiles.has(jpgFile.path) || selectedFiles.has(rawFile.path);
     if (isSelected) {
@@ -516,80 +761,45 @@ function setStackMode(baseKey, mode) {
       }
     }
   }
-  
+
   renderTimeline();
   updateSummary();
 }
 
-// Toggle global stack mode: both (RAW+JPG) or jpg (JPG only) for all stacked items
+// Toggle global stack mode
 function setGlobalStackMode(mode) {
   Object.keys(scannedDays).forEach(date => {
-    const files = scannedDays[date];
-    const groupedByBase = {};
-    files.forEach(f => {
-      const dotIndex = f.name.lastIndexOf('.');
-      const baseName = dotIndex !== -1 ? f.name.substring(0, dotIndex) : f.name;
-      const baseKey = baseName.toLowerCase();
-      if (!groupedByBase[baseKey]) groupedByBase[baseKey] = [];
-      groupedByBase[baseKey].push(f);
-    });
-
-    Object.values(groupedByBase).forEach(group => {
-      if (group.length === 2) {
-        const rawFile = group.find(f => f.file_type === 'raw');
-        const jpgFile = group.find(f => f.file_type === 'jpg');
-        if (rawFile && jpgFile) {
-          const baseKey = jpgFile.name.substring(0, jpgFile.name.lastIndexOf('.')).toLowerCase();
-          stackModes[baseKey] = mode;
-          const isSelected = selectedFiles.has(jpgFile.path) || selectedFiles.has(rawFile.path);
-          if (isSelected) {
-            if (mode === 'jpg') {
-              selectedFiles.delete(rawFile.path);
-              selectedFiles.add(jpgFile.path);
-            } else {
-              selectedFiles.add(rawFile.path);
-              selectedFiles.add(jpgFile.path);
-            }
-          }
-        }
-      }
-    });
+    setDayStackMode(date, mode);
   });
-
-  renderTimeline();
-  updateSummary();
 }
 
-// Toggle day stack mode: both (RAW+JPG) or jpg (JPG only) for stacked items of a specific day
+// Toggle day stack mode
 function setDayStackMode(date, mode) {
   const files = scannedDays[date];
-  const groupedByBase = {};
-  files.forEach(f => {
-    const dotIndex = f.name.lastIndexOf('.');
-    const baseName = dotIndex !== -1 ? f.name.substring(0, dotIndex) : f.name;
-    const baseKey = baseName.toLowerCase();
-    if (!groupedByBase[baseKey]) groupedByBase[baseKey] = [];
-    groupedByBase[baseKey].push(f);
-  });
+  const dayItems = groupDayItems(files);
 
-  Object.values(groupedByBase).forEach(group => {
-    if (group.length === 2) {
-      const rawFile = group.find(f => f.file_type === 'raw');
-      const jpgFile = group.find(f => f.file_type === 'jpg');
-      if (rawFile && jpgFile) {
-        const baseKey = jpgFile.name.substring(0, jpgFile.name.lastIndexOf('.')).toLowerCase();
-        stackModes[baseKey] = mode;
-        const isSelected = selectedFiles.has(jpgFile.path) || selectedFiles.has(rawFile.path);
-        if (isSelected) {
-          if (mode === 'jpg') {
-            selectedFiles.delete(rawFile.path);
-            selectedFiles.add(jpgFile.path);
-          } else {
-            selectedFiles.add(rawFile.path);
-            selectedFiles.add(jpgFile.path);
-          }
+  const applyModeToItem = (item) => {
+    if (item.type === 'stack') {
+      const baseKey = item.jpgFile.name.substring(0, item.jpgFile.name.lastIndexOf('.')).toLowerCase();
+      stackModes[baseKey] = mode;
+      const isSelected = selectedFiles.has(item.jpgFile.path) || selectedFiles.has(item.rawFile.path);
+      if (isSelected) {
+        if (mode === 'jpg') {
+          selectedFiles.delete(item.rawFile.path);
+          selectedFiles.add(item.jpgFile.path);
+        } else {
+          selectedFiles.add(item.rawFile.path);
+          selectedFiles.add(item.jpgFile.path);
         }
       }
+    }
+  };
+
+  dayItems.forEach(item => {
+    if (item.type === 'burst') {
+      item.items.forEach(applyModeToItem);
+    } else {
+      applyModeToItem(item);
     }
   });
 
@@ -597,7 +807,7 @@ function setDayStackMode(date, mode) {
   updateSummary();
 }
 
-// Toggle item selection (stack or single)
+// Toggle item selection
 function toggleItemSelection(item, cardEl) {
   const isSelected = item.type === 'stack' 
     ? selectedFiles.has(item.jpgFile.path) 
@@ -621,48 +831,47 @@ function toggleItemSelection(item, cardEl) {
     } else {
       selectedFiles.add(item.files[0].path);
     }
-    cardEl.classList.add('selected');
-    cardEl.querySelector('.item-checkbox').checked = true;
+    if (cardEl) {
+      cardEl.classList.add('selected');
+      const cb = cardEl.querySelector('.item-checkbox');
+      if (cb) cb.checked = true;
+    }
   } else {
-    cardEl.classList.remove('selected');
-    cardEl.querySelector('.item-checkbox').checked = false;
+    if (cardEl) {
+      cardEl.classList.remove('selected');
+      const cb = cardEl.querySelector('.item-checkbox');
+      if (cb) cb.checked = false;
+    }
   }
 
-  updateDayHeaderSelectionState(cardEl.closest('.day-block'));
+  if (cardEl) {
+    updateDayHeaderSelectionState(cardEl.closest('.day-block'));
+  }
   updateSummary();
 }
 
-// Update day header checkbox based on children states
+// Update day header checkbox state
 function updateDayHeaderSelectionState(dayBlockEl) {
+  if (!dayBlockEl) return;
   const date = dayBlockEl.dataset.date;
   const files = scannedDays[date];
+  const items = groupDayItems(files);
   const dayCheckbox = dayBlockEl.querySelector('.day-checkbox');
-  
-  // Group files by base name to match visual items
-  const groupedByBase = {};
-  files.forEach(file => {
-    const dotIndex = file.name.lastIndexOf('.');
-    const baseName = dotIndex !== -1 ? file.name.substring(0, dotIndex) : file.name;
-    const baseKey = baseName.toLowerCase();
-    if (!groupedByBase[baseKey]) groupedByBase[baseKey] = [];
-    groupedByBase[baseKey].push(file);
-  });
 
-  const isAllSelected = Object.values(groupedByBase).every(group => {
-    if (group.length === 2) {
-      const rawFile = group.find(f => f.file_type === 'raw');
-      const jpgFile = group.find(f => f.file_type === 'jpg');
-      if (rawFile && jpgFile) {
-        return selectedFiles.has(jpgFile.path);
-      }
+  const isAllSelected = items.every(item => {
+    if (item.type === 'burst') {
+      const coverItem = item.items[item.coverIndex];
+      return coverItem.type === 'stack' ? selectedFiles.has(coverItem.jpgFile.path) : selectedFiles.has(coverItem.files[0].path);
+    } else if (item.type === 'stack') {
+      return selectedFiles.has(item.jpgFile.path);
     }
-    return group.every(f => selectedFiles.has(f.path));
+    return selectedFiles.has(item.files[0].path);
   });
 
-  dayCheckbox.checked = isAllSelected;
+  if (dayCheckbox) dayCheckbox.checked = isAllSelected;
 }
 
-// Toggle item favorite state (star icon)
+// Toggle item favorite state
 function toggleItemFavorite(item, starBtnEl) {
   const isStarred = item.type === 'stack'
     ? favoriteFiles.has(item.jpgFile.path)
@@ -678,84 +887,45 @@ function toggleItemFavorite(item, starBtnEl) {
 
   const newStarredState = !isStarred;
   if (newStarredState) {
-    starBtnEl.classList.add('starred');
-    
-    // Auto-select when starring (workflow shortcut)
-    const cardEl = starBtnEl.closest('.file-card');
+    if (starBtnEl) starBtnEl.classList.add('starred');
     const isSelected = item.type === 'stack'
       ? selectedFiles.has(item.jpgFile.path)
       : selectedFiles.has(item.files[0].path);
     if (!isSelected) {
-      toggleItemSelection(item, cardEl);
+      toggleItemSelection(item, starBtnEl.closest('.file-card'));
     }
   } else {
-    starBtnEl.classList.remove('starred');
+    if (starBtnEl) starBtnEl.classList.remove('starred');
   }
 }
 
-// Compile a flat ordered array of all items in the timeline
+// Compile a flat ordered array of all items in timeline
 function getTimelineItems() {
   const dates = Object.keys(scannedDays).sort((a, b) => b.localeCompare(a));
   const allItems = [];
   dates.forEach(date => {
     const files = scannedDays[date];
-    const groupedByBase = {};
-    files.forEach(file => {
-      const dotIndex = file.name.lastIndexOf('.');
-      const baseName = dotIndex !== -1 ? file.name.substring(0, dotIndex) : file.name;
-      const baseKey = baseName.toLowerCase();
-      
-      if (!groupedByBase[baseKey]) {
-        groupedByBase[baseKey] = [];
+    const items = groupDayItems(files);
+    items.forEach(it => {
+      if (it.type === 'burst') {
+        it.items.forEach(sub => allItems.push(sub));
+      } else {
+        allItems.push(it);
       }
-      groupedByBase[baseKey].push(file);
-    });
-
-    Object.values(groupedByBase).forEach(group => {
-      if (group.length === 2) {
-        const rawFile = group.find(f => f.file_type === 'raw');
-        const jpgFile = group.find(f => f.file_type === 'jpg');
-        if (rawFile && jpgFile) {
-          const dotIdx = jpgFile.name.lastIndexOf('.');
-          const bName = dotIdx !== -1 ? jpgFile.name.substring(0, dotIdx) : jpgFile.name;
-          allItems.push({
-            type: 'stack',
-            name: `${bName} (RAW+JPG)`,
-            files: [rawFile, jpgFile],
-            rawFile,
-            jpgFile,
-            file_type: 'raw+jpg',
-            size: rawFile.size + jpgFile.size,
-            date: jpgFile.date,
-            thumbnail_url: jpgFile.thumbnail_url || rawFile.thumbnail_url
-          });
-          return;
-        }
-      }
-      
-      group.forEach(file => {
-        allItems.push({
-          type: 'single',
-          name: file.name,
-          files: [file],
-          file_type: file.file_type,
-          size: file.size,
-          date: file.date,
-          thumbnail_url: file.thumbnail_url
-        });
-      });
     });
   });
   return allItems;
 }
 
-// Open Lightbox for an item index
+// ----------------------------------------------------
+// Lightbox Operations
+// ----------------------------------------------------
+
 function openLightbox(index) {
   if (index < 0 || index >= lightboxItems.length) return;
   lightboxIndex = index;
   const item = lightboxItems[index];
 
-  // Clear previous state
   elLightboxImg.classList.add("hidden");
   elLightboxVideo.classList.add("hidden");
   elLightboxVideo.pause();
@@ -796,7 +966,6 @@ function openLightbox(index) {
   
   elLightboxDetails.textContent = `${activeExtensions} — ${formatBytes(displaySize)} — ${item.date}`;
 
-  // Toggle navigation controls visibility
   elBtnLightboxPrev.style.display = index === 0 ? "none" : "flex";
   elBtnLightboxNext.style.display = index === lightboxItems.length - 1 ? "none" : "flex";
 
@@ -806,7 +975,6 @@ function openLightbox(index) {
   refreshIcons();
 }
 
-// Close Lightbox
 function closeLightbox() {
   elModalLightbox.classList.add("hidden");
   elLightboxImg.src = "";
@@ -814,7 +982,6 @@ function closeLightbox() {
   elLightboxVideo.src = "";
 }
 
-// Navigate Lightbox previous / next
 function navigateLightbox(direction) {
   const newIdx = lightboxIndex + direction;
   if (newIdx >= 0 && newIdx < lightboxItems.length) {
@@ -822,7 +989,107 @@ function navigateLightbox(direction) {
   }
 }
 
-// Update the footer text summary and Import Button states
+// ----------------------------------------------------
+// Burst Inspector Implementation
+// ----------------------------------------------------
+
+function openBurstInspector(burstItem) {
+  currentBurstItem = burstItem;
+  // Start at cover photo index (the LAST photo of the sequence by default)
+  activeBurstIdx = burstItem.coverIndex !== undefined ? burstItem.coverIndex : burstItem.items.length - 1;
+  burstViewMode = 'solo';
+
+  elModalBurstInspector.classList.remove("hidden");
+  renderBurstInspector();
+  refreshIcons();
+}
+
+function closeBurstInspector() {
+  elModalBurstInspector.classList.add("hidden");
+  currentBurstItem = null;
+  renderTimeline();
+  updateSummary();
+}
+
+function renderBurstInspector() {
+  if (!currentBurstItem || !currentBurstItem.items.length) return;
+
+  const total = currentBurstItem.items.length;
+  const activeItem = currentBurstItem.items[activeBurstIdx];
+  const coverItem = currentBurstItem.items[currentBurstItem.coverIndex];
+
+  // Header texts
+  elBurstInspectorTitle.textContent = `Visionneuse de Rafale (${total} photos)`;
+  elBurstInspectorSubtitle.textContent = `Du cliché 1 à ${total} — ${currentBurstItem.date}`;
+
+  // Mode toggles visuals
+  elBtnBurstViewSolo.classList.toggle('active', burstViewMode === 'solo');
+  elBtnBurstViewSplit.classList.toggle('active', burstViewMode === 'split');
+
+  // Stages
+  if (burstViewMode === 'solo') {
+    elBurstStageSolo.classList.remove('hidden');
+    elBurstStageSplit.classList.add('hidden');
+    elBurstSoloImg.src = `${activeItem.thumbnail_url}?full=true`;
+  } else {
+    elBurstStageSolo.classList.add('hidden');
+    elBurstStageSplit.classList.remove('hidden');
+    elBurstSplitImgActive.src = `${activeItem.thumbnail_url}?full=true`;
+    elBurstSplitImgRef.src = `${coverItem.thumbnail_url}?full=true`;
+    elBurstSplitActiveNum.textContent = `${activeBurstIdx + 1}/${total}`;
+  }
+
+  // Active item meta
+  const isSelected = activeItem.type === 'stack' ? selectedFiles.has(activeItem.jpgFile.path) : selectedFiles.has(activeItem.files[0].path);
+  const isStarred = activeItem.type === 'stack' ? favoriteFiles.has(activeItem.jpgFile.path) : favoriteFiles.has(activeItem.files[0].path);
+
+  let metaDesc = `${activeItem.name} — ${formatBytes(activeItem.size)} — ${isSelected ? '☑ Sélectionnée pour import' : '☐ Non sélectionnée'}`;
+  if (activeBurstIdx === currentBurstItem.coverIndex) {
+    metaDesc += ` ⭐ [DERNIÈRE PHOTO / COUVERTURE]`;
+  }
+  elBurstActiveMeta.textContent = metaDesc;
+
+  // Filmstrip rendering
+  elBurstFilmstrip.innerHTML = '';
+  currentBurstItem.items.forEach((item, idx) => {
+    const tile = document.createElement('div');
+    const itemIsSelected = item.type === 'stack' ? selectedFiles.has(item.jpgFile.path) : selectedFiles.has(item.files[0].path);
+    const itemIsStarred = item.type === 'stack' ? favoriteFiles.has(item.jpgFile.path) : favoriteFiles.has(item.files[0].path);
+
+    tile.className = `filmstrip-item ${idx === activeBurstIdx ? 'active' : ''} ${idx === currentBurstItem.coverIndex ? 'is-cover' : ''}`;
+    
+    let coverTag = idx === currentBurstItem.coverIndex ? `<span class="filmstrip-cover-tag">DERNIÈRE</span>` : '';
+    let starIcon = itemIsStarred ? `<i data-lucide="star" style="width:12px; height:12px; fill:#f59e0b; color:#f59e0b;"></i>` : '';
+
+    tile.innerHTML = `
+      <img src="${item.thumbnail_url}" alt="${item.name}" loading="lazy" />
+      <input type="checkbox" class="filmstrip-check" ${itemIsSelected ? 'checked' : ''} />
+      ${coverTag}
+      <span class="filmstrip-badge">${idx + 1} ${starIcon}</span>
+    `;
+
+    tile.addEventListener('click', (e) => {
+      if (e.target.tagName === 'INPUT') return;
+      activeBurstIdx = idx;
+      renderBurstInspector();
+    });
+
+    tile.querySelector('.filmstrip-check').addEventListener('change', (e) => {
+      e.stopPropagation();
+      toggleItemSelection(item);
+      renderBurstInspector();
+    });
+
+    elBurstFilmstrip.appendChild(tile);
+  });
+
+  refreshIcons();
+}
+
+// ----------------------------------------------------
+// Summary & Import Actions
+// ----------------------------------------------------
+
 function updateSummary() {
   if (selectedFiles.size === 0) {
     elTxtSummary.textContent = "Aucun fichier sélectionné";
@@ -853,10 +1120,7 @@ function updateSummary() {
   elBtnImport.disabled = false;
 }
 
-// ----------------------------------------------------
-// Core Operations: Scan & Import
-// ----------------------------------------------------
-
+// Start SD Card Scan
 async function startScan() {
   const sourcePath = elSourcePath.value.trim();
   if (!sourcePath) {
@@ -887,21 +1151,28 @@ async function startScan() {
 
       scannedDays = await invoke("scan_source", { sourcePath });
     } else {
-      // Simulate reading network delay
-      await new Promise(resolve => setTimeout(resolve, 1500));
+      await new Promise(resolve => setTimeout(resolve, 1200));
       scannedDays = getMockData();
     }
 
-    // Default select all scanned files
     selectedFiles.clear();
     favoriteFiles.clear();
     stackModes = {};
-    Object.values(scannedDays).flat().forEach(file => {
-      selectedFiles.add(file.path);
-      // Automatically star RAW files in simulation as a default showcase
-      if (!isTauri && file.file_type === 'raw') {
-        favoriteFiles.add(file.path);
-      }
+
+    // Group into items and select ONLY the LAST photo of each burst sequence by default!
+    Object.keys(scannedDays).forEach(date => {
+      const files = scannedDays[date];
+      const items = groupDayItems(files);
+
+      items.forEach(item => {
+        if (item.type === 'burst') {
+          // Select ONLY the cover item (LAST photo) by default!
+          const coverItem = item.items[item.coverIndex];
+          coverItem.files.forEach(f => selectedFiles.add(f.path));
+        } else {
+          item.files.forEach(f => selectedFiles.add(f.path));
+        }
+      });
     });
 
     renderTimeline();
@@ -912,14 +1183,13 @@ async function startScan() {
     alert(`Erreur de scan : ${error}`);
     elEmptyState.classList.remove('hidden');
   } finally {
-    if (unlistenScan) {
-      unlistenScan();
-    }
+    if (unlistenScan) unlistenScan();
     elScanLoader.classList.add('hidden');
     elBtnScan.disabled = false;
   }
 }
 
+// Run Import operation
 async function runImport() {
   const destPath = elDestPath.value.trim();
   if (!destPath) {
@@ -927,7 +1197,6 @@ async function runImport() {
     return;
   }
 
-  // Build payload
   const importDaysConfig = Object.keys(scannedDays).map(date => {
     const dayFiles = scannedDays[date];
     const filesToImport = dayFiles
@@ -950,7 +1219,6 @@ async function runImport() {
     return;
   }
 
-  // Setup UI for modal progress
   elModalImport.classList.remove('hidden');
   elImportProgressView.classList.remove('hidden');
   elImportReportView.classList.add('hidden');
@@ -969,11 +1237,8 @@ async function runImport() {
     day.files.forEach(f => {
       if (f.is_favorite) {
         favoriteCount++;
-        // Find file details to calculate saved space
         const details = Object.values(scannedDays).flat().find(sd => sd.path === f.source_path);
-        if (details) {
-          savedBytes += details.size;
-        }
+        if (details) savedBytes += details.size;
       }
     });
   });
@@ -998,29 +1263,18 @@ async function runImport() {
       elImportProgressFill.style.width = '100%';
 
     } else {
-      // High-fidelity simulation mode
       const allFiles = importDaysConfig.flatMap(d => d.files);
       for (let i = 0; i < allFiles.length; i++) {
         const file = allFiles[i];
         const fileName = file.source_path.split('/').pop();
-        
-        // Show actual copying/moving log
         const verb = deleteSourceAfterImport ? "Déplacement" : "Copie";
         elImportStatusText.textContent = `[${i + 1}/${allFiles.length}] ${verb} de ${fileName} (${file.file_type.toUpperCase()})...`;
-        
-        // Increment progress bar
-        const progressPercentage = Math.round(((i + 1) / allFiles.length) * 100);
-        elImportProgressFill.style.width = `${progressPercentage}%`;
-
-        // Wait a tiny bit to simulate filesystem operations
-        await new Promise(r => setTimeout(r, 250));
+        elImportProgressFill.style.width = `${Math.round(((i + 1) / allFiles.length) * 100)}%`;
+        await new Promise(r => setTimeout(r, 200));
       }
     }
 
-    // Success Screen transition
     copiedCount = totalFilesToCopy;
-    
-    // Fill stats
     elStatCopied.textContent = copiedCount;
     elStatFavs.textContent = favoriteCount;
     elStatSaved.textContent = formatBytes(savedBytes);
@@ -1037,12 +1291,6 @@ async function runImport() {
     elModalImport.classList.add('hidden');
   }
 }
-
-// ----------------------------------------------------
-// Setup Initialization
-// ----------------------------------------------------
-
-// --- Lightbox Operations Sync ---
 
 function updateLightboxSelectionVisuals(item) {
   const isSelected = item.type === 'stack'
@@ -1068,30 +1316,7 @@ function toggleLightboxSelection() {
   const item = lightboxItems[lightboxIndex];
   if (!item) return;
 
-  const isSelected = item.type === 'stack'
-    ? selectedFiles.has(item.jpgFile.path)
-    : selectedFiles.has(item.files[0].path);
-
-  // Toggle selection state
-  item.files.forEach(f => {
-    if (isSelected) {
-      selectedFiles.delete(f.path);
-    } else {
-      if (item.type === 'stack') {
-        const baseKey = item.jpgFile.name.substring(0, item.jpgFile.name.lastIndexOf('.')).toLowerCase();
-        const mode = stackModes[baseKey] || 'both';
-        if (mode === 'jpg') {
-          selectedFiles.add(item.jpgFile.path);
-        } else {
-          selectedFiles.add(item.jpgFile.path);
-          selectedFiles.add(item.rawFile.path);
-        }
-      } else {
-        selectedFiles.add(item.files[0].path);
-      }
-    }
-  });
-
+  toggleItemSelection(item);
   updateLightboxSelectionVisuals(item);
   updateTimelineCardVisuals(item);
   updateSummary();
@@ -1102,40 +1327,7 @@ function toggleLightboxFavorite() {
   const item = lightboxItems[lightboxIndex];
   if (!item) return;
 
-  const isStarred = item.type === 'stack'
-    ? favoriteFiles.has(item.jpgFile.path)
-    : favoriteFiles.has(item.files[0].path);
-
-  item.files.forEach(f => {
-    if (isStarred) {
-      favoriteFiles.delete(f.path);
-    } else {
-      favoriteFiles.add(f.path);
-    }
-  });
-
-  // Auto-select when starring
-  const isSelected = item.type === 'stack'
-    ? selectedFiles.has(item.jpgFile.path)
-    : selectedFiles.has(item.files[0].path);
-    
-  if (!isStarred && !isSelected) {
-    item.files.forEach(f => {
-      if (item.type === 'stack') {
-        const baseKey = item.jpgFile.name.substring(0, item.jpgFile.name.lastIndexOf('.')).toLowerCase();
-        const mode = stackModes[baseKey] || 'both';
-        if (mode === 'jpg') {
-          selectedFiles.add(item.jpgFile.path);
-        } else {
-          selectedFiles.add(item.jpgFile.path);
-          selectedFiles.add(item.rawFile.path);
-        }
-      } else {
-        selectedFiles.add(item.files[0].path);
-      }
-    });
-  }
-
+  toggleItemFavorite(item);
   updateLightboxFavoriteVisuals(item);
   updateLightboxSelectionVisuals(item);
   updateTimelineCardVisuals(item);
@@ -1161,14 +1353,14 @@ function updateTimelineCardVisuals(item) {
     const starBtn = cardEl.querySelector('.btn-star');
     if (starBtn) starBtn.classList.toggle('starred', isStarred);
 
-    // Also update day header checkbox
     const dayBlock = cardEl.closest('.day-block');
-    if (dayBlock) {
-      updateDayHeaderSelectionState(dayBlock);
-    }
+    if (dayBlock) updateDayHeaderSelectionState(dayBlock);
   }
 }
 
+// ----------------------------------------------------
+// DOMContentLoaded Event Binding
+// ----------------------------------------------------
 
 window.addEventListener("DOMContentLoaded", () => {
   // Bind UI References
@@ -1215,11 +1407,32 @@ window.addEventListener("DOMContentLoaded", () => {
   elBtnLightboxSelect = document.querySelector("#btn-lightbox-select");
   elBtnLightboxStar = document.querySelector("#btn-lightbox-star");
 
+  // Burst Inspector Bindings
+  elModalBurstInspector = document.querySelector("#modal-burst-inspector");
+  elBurstInspectorTitle = document.querySelector("#burst-inspector-title");
+  elBurstInspectorSubtitle = document.querySelector("#burst-inspector-subtitle");
+  elBtnBurstViewSolo = document.querySelector("#btn-burst-view-solo");
+  elBtnBurstViewSplit = document.querySelector("#btn-burst-view-split");
+  elBtnBurstClose = document.querySelector("#btn-burst-close");
+  elBurstStageSolo = document.querySelector("#burst-stage-solo");
+  elBurstStageSplit = document.querySelector("#burst-stage-split");
+  elBurstSoloImg = document.querySelector("#burst-solo-img");
+  elBurstSplitImgActive = document.querySelector("#burst-split-img-active");
+  elBurstSplitImgRef = document.querySelector("#burst-split-img-ref");
+  elBurstSplitActiveNum = document.querySelector("#burst-split-active-num");
+  elBurstActiveMeta = document.querySelector("#burst-active-meta");
+  elBtnBurstKeepLast = document.querySelector("#btn-burst-keep-last");
+  elBtnBurstKeepStarred = document.querySelector("#btn-burst-keep-starred");
+  elBtnBurstSelectAll = document.querySelector("#btn-burst-select-all");
+  elBtnBurstDeselectAll = document.querySelector("#btn-burst-deselect-all");
+  elBtnBurstPrev = document.querySelector("#btn-burst-prev");
+  elBtnBurstNext = document.querySelector("#btn-burst-next");
+  elBurstFilmstrip = document.querySelector("#burst-filmstrip");
+
   // Event Listeners
   elBtnScan.addEventListener("click", startScan);
   elBtnImport.addEventListener("click", runImport);
 
-  // Selection actions
   elBtnSelectAll.addEventListener("click", () => {
     Object.keys(scannedDays).forEach(date => selectDayFiles(date, true));
   });
@@ -1230,15 +1443,9 @@ window.addEventListener("DOMContentLoaded", () => {
     updateSummary();
   });
 
-  elBtnGlobalBoth.addEventListener("click", () => {
-    setGlobalStackMode("both");
-  });
+  elBtnGlobalBoth.addEventListener("click", () => setGlobalStackMode("both"));
+  elBtnGlobalJpg.addEventListener("click", () => setGlobalStackMode("jpg"));
 
-  elBtnGlobalJpg.addEventListener("click", () => {
-    setGlobalStackMode("jpg");
-  });
-
-  // Import mode toggles
   elBtnModeCopy.addEventListener("click", () => {
     deleteSourceAfterImport = false;
     elBtnModeCopy.classList.add("active");
@@ -1254,43 +1461,41 @@ window.addEventListener("DOMContentLoaded", () => {
   elBtnSelectSource.addEventListener("click", async () => {
     if (isTauri) {
       const selected = await invoke("select_folder", { title: "Sélectionner le dossier source (Carte SD)" });
-      if (selected) {
-        elSourcePath.value = selected;
-      }
+      if (selected) elSourcePath.value = selected;
     } else {
       const mockPath = prompt("Simulation : Entrez un dossier source", "E:\\DCIM\\100MSDCF");
-      if (mockPath) {
-        elSourcePath.value = mockPath;
-      }
+      if (mockPath) elSourcePath.value = mockPath;
     }
   });
 
   elBtnSelectDest.addEventListener("click", async () => {
     if (isTauri) {
       const selected = await invoke("select_folder", { title: "Sélectionner le dossier de destination (Archivage)" });
-      if (selected) {
-        elDestPath.value = selected;
-      }
+      if (selected) elDestPath.value = selected;
     } else {
       const mockPath = prompt("Simulation : Entrez un dossier de destination", "C:\\Users\\loufa\\Photos_Backup");
-      if (mockPath) {
-        elDestPath.value = mockPath;
-      }
+      if (mockPath) elDestPath.value = mockPath;
     }
   });
-  
+
   elBtnModalClose.addEventListener("click", () => {
     elModalImport.classList.add('hidden');
-    // Clear selection on successful import
+
+    // If original source files were moved/deleted from SD Card, remove them from scannedDays
+    if (deleteSourceAfterImport) {
+      Object.keys(scannedDays).forEach(date => {
+        scannedDays[date] = scannedDays[date].filter(f => !selectedFiles.has(f.path));
+        if (scannedDays[date].length === 0) {
+          delete scannedDays[date];
+        }
+      });
+    }
+
+    // Uncheck selected files so the user can immediately pick and import another set without rescanning!
     selectedFiles.clear();
-    favoriteFiles.clear();
-    stackModes = {};
-    scannedDays = {};
     renderTimeline();
     updateSummary();
   });
-
-
 
   elBtnLightboxClose.addEventListener("click", closeLightbox);
   elBtnLightboxPrev.addEventListener("click", () => navigateLightbox(-1));
@@ -1298,56 +1503,144 @@ window.addEventListener("DOMContentLoaded", () => {
   elBtnLightboxSelect.addEventListener("change", toggleLightboxSelection);
   elBtnLightboxStar.addEventListener("click", toggleLightboxFavorite);
 
-  // Lightbox stack-mode selector delegate listener
   elLightboxStackControl.addEventListener("click", (e) => {
     const opt = e.target.closest('.mode-opt');
     if (!opt) return;
     const mode = opt.dataset.mode;
-    
     const item = lightboxItems[lightboxIndex];
     if (item && item.type === 'stack') {
       const baseKey = item.jpgFile.name.substring(0, item.jpgFile.name.lastIndexOf('.')).toLowerCase();
       setStackMode(baseKey, mode);
-      
-      // Update active option visuals
-      elLightboxStackControl.querySelectorAll('.mode-opt').forEach(o => {
-        o.classList.toggle("active", o.dataset.mode === mode);
-      });
-      
-      // Update details text and size description in lightbox
-      const activeFiles = item.files.filter(f => selectedFiles.has(f.path));
-      const finalSize = activeFiles.reduce((acc, f) => acc + f.size, 0) || item.size;
-      const activeExtensions = activeFiles.length > 0 
-        ? activeFiles.map(f => f.name.split('.').pop().toUpperCase()).join("+")
-        : item.files.map(f => f.name.split('.').pop().toUpperCase()).join("+");
-      elLightboxDetails.textContent = `${activeExtensions} — ${formatBytes(finalSize)} — ${item.date}`;
+      elLightboxStackControl.querySelectorAll('.mode-opt').forEach(o => o.classList.toggle("active", o.dataset.mode === mode));
     }
   });
 
-  // Close lightbox on backdrop click
   elModalLightbox.addEventListener("click", (e) => {
-    if (e.target === elModalLightbox) {
-      closeLightbox();
+    if (e.target === elModalLightbox) closeLightbox();
+  });
+
+  // Burst Inspector Listeners
+  elBtnBurstClose.addEventListener("click", closeBurstInspector);
+
+  elBtnBurstViewSolo.addEventListener("click", () => {
+    burstViewMode = 'solo';
+    renderBurstInspector();
+  });
+
+  elBtnBurstViewSplit.addEventListener("click", () => {
+    burstViewMode = 'split';
+    renderBurstInspector();
+  });
+
+  elBtnBurstPrev.addEventListener("click", () => {
+    if (currentBurstItem && activeBurstIdx > 0) {
+      activeBurstIdx--;
+      renderBurstInspector();
     }
   });
 
-  // Keyboard navigation shortcuts
+  elBtnBurstNext.addEventListener("click", () => {
+    if (currentBurstItem && activeBurstIdx < currentBurstItem.items.length - 1) {
+      activeBurstIdx++;
+      renderBurstInspector();
+    }
+  });
+
+  elBtnBurstKeepLast.addEventListener("click", () => {
+    if (!currentBurstItem) return;
+    const lastItem = currentBurstItem.items[currentBurstItem.coverIndex];
+    currentBurstItem.items.forEach(it => {
+      it.files.forEach(f => selectedFiles.delete(f.path));
+    });
+    lastItem.files.forEach(f => selectedFiles.add(f.path));
+    renderBurstInspector();
+    updateSummary();
+  });
+
+  elBtnBurstKeepStarred.addEventListener("click", () => {
+    if (!currentBurstItem) return;
+    currentBurstItem.items.forEach(it => {
+      const isStarred = it.type === 'stack' ? favoriteFiles.has(it.jpgFile.path) : favoriteFiles.has(it.files[0].path);
+      it.files.forEach(f => {
+        if (isStarred) selectedFiles.add(f.path);
+        else selectedFiles.delete(f.path);
+      });
+    });
+    renderBurstInspector();
+    updateSummary();
+  });
+
+  elBtnBurstSelectAll.addEventListener("click", () => {
+    if (!currentBurstItem) return;
+    currentBurstItem.items.forEach(it => {
+      it.files.forEach(f => selectedFiles.add(f.path));
+    });
+    renderBurstInspector();
+    updateSummary();
+  });
+
+  elBtnBurstDeselectAll.addEventListener("click", () => {
+    if (!currentBurstItem) return;
+    currentBurstItem.items.forEach(it => {
+      it.files.forEach(f => selectedFiles.delete(f.path));
+    });
+    renderBurstInspector();
+    updateSummary();
+  });
+
+  elModalBurstInspector.addEventListener("click", (e) => {
+    if (e.target === elModalBurstInspector) closeBurstInspector();
+  });
+
+  // Global Keyboard Navigation (Lightbox & Burst Inspector)
   window.addEventListener("keydown", (e) => {
-    if (elModalLightbox.classList.contains("hidden")) return;
-    if (e.key === "Escape") {
-      closeLightbox();
-    } else if (e.key === "ArrowLeft") {
-      navigateLightbox(-1);
-    } else if (e.key === "ArrowRight") {
-      navigateLightbox(1);
-    } else if (e.key === " ") {
-      e.preventDefault();
-      toggleLightboxSelection();
-    } else if (e.key.toLowerCase() === "f") {
-      toggleLightboxFavorite();
+    // Burst Inspector Keyboard Controls
+    if (!elModalBurstInspector.classList.contains("hidden")) {
+      if (e.key === "Escape") {
+        closeBurstInspector();
+      } else if (e.key === "ArrowLeft") {
+        if (activeBurstIdx > 0) {
+          activeBurstIdx--;
+          renderBurstInspector();
+        }
+      } else if (e.key === "ArrowRight") {
+        if (activeBurstIdx < currentBurstItem.items.length - 1) {
+          activeBurstIdx++;
+          renderBurstInspector();
+        }
+      } else if (e.key === " " || e.key.toLowerCase() === "s") {
+        e.preventDefault();
+        if (currentBurstItem) {
+          const activeItem = currentBurstItem.items[activeBurstIdx];
+          toggleItemSelection(activeItem);
+          renderBurstInspector();
+        }
+      } else if (e.key.toLowerCase() === "f") {
+        if (currentBurstItem) {
+          const activeItem = currentBurstItem.items[activeBurstIdx];
+          toggleItemFavorite(activeItem);
+          renderBurstInspector();
+        }
+      }
+      return;
+    }
+
+    // Lightbox Keyboard Controls
+    if (!elModalLightbox.classList.contains("hidden")) {
+      if (e.key === "Escape") {
+        closeLightbox();
+      } else if (e.key === "ArrowLeft") {
+        navigateLightbox(-1);
+      } else if (e.key === "ArrowRight") {
+        navigateLightbox(1);
+      } else if (e.key === " ") {
+        e.preventDefault();
+        toggleLightboxSelection();
+      } else if (e.key.toLowerCase() === "f") {
+        toggleLightboxFavorite();
+      }
     }
   });
 
-  // Load initial icons
   refreshIcons();
 });

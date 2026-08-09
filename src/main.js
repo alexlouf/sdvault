@@ -1473,7 +1473,7 @@ window.addEventListener("DOMContentLoaded", () => {
       const selected = await invoke("select_folder", { title: "Sélectionner le dossier de destination (Archivage)" });
       if (selected) elDestPath.value = selected;
     } else {
-      const mockPath = prompt("Simulation : Entrez un dossier de destination", "C:\\Users\\loufa\\Photos_Backup");
+      const mockPath = prompt("Simulation : Entrez un dossier de destination", "C:\\Users\\User\\Photos_Backup");
       if (mockPath) elDestPath.value = mockPath;
     }
   });

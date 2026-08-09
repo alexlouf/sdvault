@@ -1,10 +1,5 @@
-// Check if we are running in Tauri or a standard web browser
-const isTauri = typeof window !== 'undefined' && window.__TAURI__ !== undefined;
-
-let invoke;
-if (isTauri) {
-  invoke = window.__TAURI__.core.invoke;
-}
+const { invoke } = window.__TAURI__.core;
+const { listen } = window.__TAURI__.event;
 
 // ----------------------------------------------------
 // Application State
@@ -65,193 +60,6 @@ function formatBytes(bytes, decimals = 1) {
   const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
   const i = Math.floor(Math.log(bytes) / Math.log(k));
   return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
-}
-
-// Get modern mock data for web simulation with burst series
-function getMockData() {
-  const today = new Date().toISOString().split('T')[0];
-  const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
-  const prevDay = new Date(Date.now() - 172800000).toISOString().split('T')[0];
-  const nowTs = Math.floor(Date.now() / 1000);
-
-  return {
-    [today]: [
-      // Single photo pair
-      {
-        path: `C:/MockSD/DCIM/DSC01928.ARW`,
-        name: "DSC01928.ARW",
-        size: 44040192,
-        file_type: "raw",
-        date: today,
-        timestamp: nowTs - 600,
-        thumbnail_url: "https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=400&q=80"
-      },
-      {
-        path: `C:/MockSD/DCIM/DSC01928.JPG`,
-        name: "DSC01928.JPG",
-        size: 8388608,
-        file_type: "jpg",
-        date: today,
-        timestamp: nowTs - 600,
-        thumbnail_url: "https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=400&q=80"
-      },
-
-      // Burst series (5 photos taken 1 second apart)
-      {
-        path: `C:/MockSD/DCIM/DSC01930.ARW`,
-        name: "DSC01930.ARW",
-        size: 44100000,
-        file_type: "raw",
-        date: today,
-        timestamp: nowTs - 200,
-        thumbnail_url: "https://images.unsplash.com/photo-1517649763962-0c623266010b?w=400&q=80"
-      },
-      {
-        path: `C:/MockSD/DCIM/DSC01930.JPG`,
-        name: "DSC01930.JPG",
-        size: 8100000,
-        file_type: "jpg",
-        date: today,
-        timestamp: nowTs - 200,
-        thumbnail_url: "https://images.unsplash.com/photo-1517649763962-0c623266010b?w=400&q=80"
-      },
-
-      {
-        path: `C:/MockSD/DCIM/DSC01931.ARW`,
-        name: "DSC01931.ARW",
-        size: 44200000,
-        file_type: "raw",
-        date: today,
-        timestamp: nowTs - 199,
-        thumbnail_url: "https://images.unsplash.com/photo-1461896836934-ffe607ba8211?w=400&q=80"
-      },
-      {
-        path: `C:/MockSD/DCIM/DSC01931.JPG`,
-        name: "DSC01931.JPG",
-        size: 8200000,
-        file_type: "jpg",
-        date: today,
-        timestamp: nowTs - 199,
-        thumbnail_url: "https://images.unsplash.com/photo-1461896836934-ffe607ba8211?w=400&q=80"
-      },
-
-      {
-        path: `C:/MockSD/DCIM/DSC01932.ARW`,
-        name: "DSC01932.ARW",
-        size: 44300000,
-        file_type: "raw",
-        date: today,
-        timestamp: nowTs - 198,
-        thumbnail_url: "https://images.unsplash.com/photo-1530549387789-4c1017266635?w=400&q=80"
-      },
-      {
-        path: `C:/MockSD/DCIM/DSC01932.JPG`,
-        name: "DSC01932.JPG",
-        size: 8300000,
-        file_type: "jpg",
-        date: today,
-        timestamp: nowTs - 198,
-        thumbnail_url: "https://images.unsplash.com/photo-1530549387789-4c1017266635?w=400&q=80"
-      },
-
-      {
-        path: `C:/MockSD/DCIM/DSC01933.ARW`,
-        name: "DSC01933.ARW",
-        size: 44150000,
-        file_type: "raw",
-        date: today,
-        timestamp: nowTs - 197,
-        thumbnail_url: "https://images.unsplash.com/photo-1519315901367-f34ff9154487?w=400&q=80"
-      },
-      {
-        path: `C:/MockSD/DCIM/DSC01933.JPG`,
-        name: "DSC01933.JPG",
-        size: 8150000,
-        file_type: "jpg",
-        date: today,
-        timestamp: nowTs - 197,
-        thumbnail_url: "https://images.unsplash.com/photo-1519315901367-f34ff9154487?w=400&q=80"
-      },
-
-      {
-        path: `C:/MockSD/DCIM/DSC01934.ARW`,
-        name: "DSC01934.ARW",
-        size: 44400000,
-        file_type: "raw",
-        date: today,
-        timestamp: nowTs - 196,
-        thumbnail_url: "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=400&q=80"
-      },
-      {
-        path: `C:/MockSD/DCIM/DSC01934.JPG`,
-        name: "DSC01934.JPG",
-        size: 8400000,
-        file_type: "jpg",
-        date: today,
-        timestamp: nowTs - 196,
-        thumbnail_url: "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=400&q=80"
-      },
-
-      {
-        path: `C:/MockSD/DCIM/MV00102.MP4`,
-        name: "MV00102.MP4",
-        size: 335544320,
-        file_type: "video",
-        date: today,
-        timestamp: nowTs - 50,
-        thumbnail_url: ""
-      }
-    ],
-    [yesterday]: [
-      {
-        path: `C:/MockSD/DCIM/DSC01920.ARW`,
-        name: "DSC01920.ARW",
-        size: 45097152,
-        file_type: "raw",
-        date: yesterday,
-        timestamp: nowTs - 86400,
-        thumbnail_url: "https://images.unsplash.com/photo-1682687220063-4742bd7fd538?w=400&q=80"
-      },
-      {
-        path: `C:/MockSD/DCIM/DSC01920.JPG`,
-        name: "DSC01920.JPG",
-        size: 8178892,
-        file_type: "jpg",
-        date: yesterday,
-        timestamp: nowTs - 86400,
-        thumbnail_url: "https://images.unsplash.com/photo-1682687220063-4742bd7fd538?w=400&q=80"
-      },
-      {
-        path: `C:/MockSD/DCIM/MV00101.MP4`,
-        name: "MV00101.MP4",
-        size: 188743680,
-        file_type: "video",
-        date: yesterday,
-        timestamp: nowTs - 86300,
-        thumbnail_url: ""
-      }
-    ],
-    [prevDay]: [
-      {
-        path: `C:/MockSD/DCIM/DSC01910.ARW`,
-        name: "DSC01910.ARW",
-        size: 43620761,
-        file_type: "raw",
-        date: prevDay,
-        timestamp: nowTs - 172800,
-        thumbnail_url: "https://images.unsplash.com/photo-1470071459604-3b5ec3a7fe05?w=400&q=80"
-      },
-      {
-        path: `C:/MockSD/DCIM/DSC01910.JPG`,
-        name: "DSC01910.JPG",
-        size: 7864320,
-        file_type: "jpg",
-        date: prevDay,
-        timestamp: nowTs - 172800,
-        thumbnail_url: "https://images.unsplash.com/photo-1470071459604-3b5ec3a7fe05?w=400&q=80"
-      }
-    ]
-  };
 }
 
 // ----------------------------------------------------
@@ -932,10 +740,7 @@ function openLightbox(index) {
   elLightboxVideo.src = "";
   
   if (item.file_type === 'video') {
-    const videoUrl = isTauri 
-      ? `http://vault-asset.localhost/${item.files[0].path}` 
-      : item.files[0].path;
-    elLightboxVideo.src = videoUrl;
+    elLightboxVideo.src = `http://vault-asset.localhost/${item.files[0].path}`;
     elLightboxVideo.classList.remove("hidden");
   } else if (item.thumbnail_url) {
     elLightboxImg.src = `${item.thumbnail_url}?full=true`;
@@ -1136,24 +941,19 @@ async function startScan() {
   let unlistenScan;
 
   try {
-    if (isTauri) {
-      const elScanProgressFill = document.querySelector("#scan-progress-fill");
-      const elScanStatusText = document.querySelector("#scan-status-text");
-      if (elScanProgressFill) elScanProgressFill.style.width = "0%";
-      if (elScanStatusText) elScanStatusText.textContent = "Recherche des fichiers...";
+    const elScanProgressFill = document.querySelector("#scan-progress-fill");
+    const elScanStatusText = document.querySelector("#scan-status-text");
+    if (elScanProgressFill) elScanProgressFill.style.width = "0%";
+    if (elScanStatusText) elScanStatusText.textContent = "Recherche des fichiers...";
 
-      unlistenScan = await window.__TAURI__.event.listen("scan-progress", (event) => {
-        const { current, total, file_name } = event.payload;
-        const percentage = Math.round((current / total) * 100);
-        if (elScanProgressFill) elScanProgressFill.style.width = `${percentage}%`;
-        if (elScanStatusText) elScanStatusText.textContent = `[${current}/${total}] Analyse de ${file_name}...`;
-      });
+    unlistenScan = await listen("scan-progress", (event) => {
+      const { current, total, file_name } = event.payload;
+      const percentage = Math.round((current / total) * 100);
+      if (elScanProgressFill) elScanProgressFill.style.width = `${percentage}%`;
+      if (elScanStatusText) elScanStatusText.textContent = `[${current}/${total}] Analyse de ${file_name}...`;
+    });
 
-      scannedDays = await invoke("scan_source", { sourcePath });
-    } else {
-      await new Promise(resolve => setTimeout(resolve, 1200));
-      scannedDays = getMockData();
-    }
+    scannedDays = await invoke("scan_source", { sourcePath });
 
     selectedFiles.clear();
     favoriteFiles.clear();
@@ -1244,35 +1044,22 @@ async function runImport() {
   });
 
   try {
-    if (isTauri) {
-      elImportStatusText.textContent = `Préparation de l'importation...`;
-      
-      const unlistenImport = await window.__TAURI__.event.listen("import-progress", (event) => {
-        const { current, total, file_name } = event.payload;
-        const percentage = Math.round((current / total) * 100);
-        elImportProgressFill.style.width = `${percentage}%`;
-        elImportStatusText.textContent = `[${current}/${total}] Copie de ${file_name}...`;
-      });
+    elImportStatusText.textContent = `Préparation de l'importation...`;
+    
+    const unlistenImport = await listen("import-progress", (event) => {
+      const { current, total, file_name } = event.payload;
+      const percentage = Math.round((current / total) * 100);
+      elImportProgressFill.style.width = `${percentage}%`;
+      elImportStatusText.textContent = `[${current}/${total}] Copie de ${file_name}...`;
+    });
 
-      try {
-        await invoke("start_import", { destination: destPath, days: importDaysConfig, deleteSource: deleteSourceAfterImport });
-      } finally {
-        unlistenImport();
-      }
-      
-      elImportProgressFill.style.width = '100%';
-
-    } else {
-      const allFiles = importDaysConfig.flatMap(d => d.files);
-      for (let i = 0; i < allFiles.length; i++) {
-        const file = allFiles[i];
-        const fileName = file.source_path.split('/').pop();
-        const verb = deleteSourceAfterImport ? "Déplacement" : "Copie";
-        elImportStatusText.textContent = `[${i + 1}/${allFiles.length}] ${verb} de ${fileName} (${file.file_type.toUpperCase()})...`;
-        elImportProgressFill.style.width = `${Math.round(((i + 1) / allFiles.length) * 100)}%`;
-        await new Promise(r => setTimeout(r, 200));
-      }
+    try {
+      await invoke("start_import", { destination: destPath, days: importDaysConfig, deleteSource: deleteSourceAfterImport });
+    } finally {
+      unlistenImport();
     }
+    
+    elImportProgressFill.style.width = '100%';
 
     copiedCount = totalFilesToCopy;
     elStatCopied.textContent = copiedCount;
@@ -1459,23 +1246,13 @@ window.addEventListener("DOMContentLoaded", () => {
   });
 
   elBtnSelectSource.addEventListener("click", async () => {
-    if (isTauri) {
-      const selected = await invoke("select_folder", { title: "Sélectionner le dossier source (Carte SD)" });
-      if (selected) elSourcePath.value = selected;
-    } else {
-      const mockPath = prompt("Simulation : Entrez un dossier source", "E:\\DCIM\\100MSDCF");
-      if (mockPath) elSourcePath.value = mockPath;
-    }
+    const selected = await invoke("select_folder", { title: "Sélectionner le dossier source (Carte SD)" });
+    if (selected) elSourcePath.value = selected;
   });
 
   elBtnSelectDest.addEventListener("click", async () => {
-    if (isTauri) {
-      const selected = await invoke("select_folder", { title: "Sélectionner le dossier de destination (Archivage)" });
-      if (selected) elDestPath.value = selected;
-    } else {
-      const mockPath = prompt("Simulation : Entrez un dossier de destination", "C:\\Users\\User\\Photos_Backup");
-      if (mockPath) elDestPath.value = mockPath;
-    }
+    const selected = await invoke("select_folder", { title: "Sélectionner le dossier de destination (Archivage)" });
+    if (selected) elDestPath.value = selected;
   });
 
   elBtnModalClose.addEventListener("click", () => {

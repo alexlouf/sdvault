@@ -313,8 +313,6 @@ function renderTimeline() {
           setDayStackMode(date, btn.dataset.mode);
         });
       });
-    }
-
     updateDayHeaderSelectionState(dayBlock);
     elTimelineArea.appendChild(dayBlock);
   });

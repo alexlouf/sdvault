@@ -336,12 +336,6 @@ async fn start_import(app: tauri::AppHandle, destination: String, days: Vec<DayI
         let video_dir = day_dir.join("video");
         let favoris_dir = day_dir.join("favoris");
 
-        // Create folders
-        fs::create_dir_all(&jpg_dir).map_err(|e| format!("Erreur dossier jpg: {:?}", e))?;
-        fs::create_dir_all(&raw_dir).map_err(|e| format!("Erreur dossier raw: {:?}", e))?;
-        fs::create_dir_all(&video_dir).map_err(|e| format!("Erreur dossier video: {:?}", e))?;
-        fs::create_dir_all(&favoris_dir).map_err(|e| format!("Erreur dossier favoris: {:?}", e))?;
-
         for file in day.files {
             let src_path = Path::new(&file.source_path);
             if !src_path.exists() {
@@ -360,14 +354,24 @@ async fn start_import(app: tauri::AppHandle, destination: String, days: Vec<DayI
                 _ => continue, // skip unrecognized files
             };
 
+            // Ensure destination subdirectory (jpg, raw, video) exists on-demand
+            if !type_dir.exists() {
+                fs::create_dir_all(type_dir)
+                    .map_err(|e| format!("Erreur lors de la création du dossier {:?}: {:?}", type_dir, e))?;
+            }
+
             let target_path = type_dir.join(file_name);
 
             // Copy file physically
             fs::copy(src_path, &target_path)
                 .map_err(|e| format!("Erreur lors de la copie de {:?} vers {:?}: {:?}", src_path, target_path, e))?;
 
-            // If it's a favorite, create a hardlink
+            // If it's a favorite, create favoris directory on-demand and create a hardlink
             if file.is_favorite {
+                if !favoris_dir.exists() {
+                    fs::create_dir_all(&favoris_dir)
+                        .map_err(|e| format!("Erreur lors de la création du dossier favoris {:?}: {:?}", favoris_dir, e))?;
+                }
                 let fav_path = favoris_dir.join(file_name);
                 if let Err(_) = fs::hard_link(&target_path, &fav_path) {
                      // Fallback to physical copy if hardlinking fails (e.g. cross-device)

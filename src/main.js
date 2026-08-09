@@ -1,5 +1,21 @@
-const { invoke } = window.__TAURI__.core;
-const { listen } = window.__TAURI__.event;
+window.addEventListener("error", (e) => {
+  alert("Global Error: " + e.message + " at " + e.filename + ":" + e.lineno);
+});
+window.addEventListener("unhandledrejection", (e) => {
+  alert("Unhandled Promise Rejection: " + e.reason);
+});
+
+let tauriCore, tauriEvent;
+try {
+  tauriCore = window.__TAURI__.core;
+  tauriEvent = window.__TAURI__.event;
+} catch (e) {
+  console.error("Tauri initialization error: ", e);
+  alert("Erreur critique: Tauri n'est pas initialisé correctement.");
+}
+
+const invoke = (...args) => tauriCore.invoke(...args);
+const listen = (...args) => tauriEvent.listen(...args);
 
 // ----------------------------------------------------
 // Application State
@@ -47,8 +63,11 @@ let elBtnBurstPrev, elBtnBurstNext, elBurstFilmstrip;
 
 // Refresh Lucide icons
 function refreshIcons() {
-  if (window.lucide) {
-    window.lucide.createIcons();
+  const lucideLib = window.lucide || (typeof exports !== 'undefined' ? exports : null);
+  if (lucideLib && lucideLib.createIcons) {
+    lucideLib.createIcons();
+  } else {
+    console.warn("Lucide library not found. Icons will not be rendered.");
   }
 }
 

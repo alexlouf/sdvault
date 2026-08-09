@@ -1231,6 +1231,18 @@ function toggleLightboxFavorite() {
   refreshIcons();
 }
 
+function toggleLightboxStackMode() {
+  const item = lightboxItems[lightboxIndex];
+  if (!item || item.type !== 'stack') return;
+
+  const baseKey = item.jpgFile.name.substring(0, item.jpgFile.name.lastIndexOf('.')).toLowerCase();
+  const currentMode = stackModes[baseKey] || 'both';
+  const newMode = currentMode === 'both' ? 'jpg' : 'both';
+
+  setStackMode(baseKey, newMode);
+  openLightbox(lightboxIndex);
+}
+
 function updateTimelineCardVisuals(item) {
   const itemKey = item.type === 'stack' ? item.jpgFile.path : item.files[0].path;
   const cardEl = document.querySelector(`.file-card[data-path="${itemKey}"]`);
@@ -1519,11 +1531,14 @@ window.addEventListener("DOMContentLoaded", () => {
         navigateLightbox(-1);
       } else if (e.key === "ArrowRight") {
         navigateLightbox(1);
-      } else if (e.key === " ") {
+      } else if (e.key === " " || e.key.toLowerCase() === "s") {
         e.preventDefault();
         toggleLightboxSelection();
       } else if (e.key.toLowerCase() === "f") {
         toggleLightboxFavorite();
+      } else if (e.key.toLowerCase() === "r" || e.key.toLowerCase() === "m") {
+        e.preventDefault();
+        toggleLightboxStackMode();
       }
     }
   });

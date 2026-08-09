@@ -1533,11 +1533,14 @@ window.addEventListener("DOMContentLoaded", () => {
         navigateLightbox(1);
       } else if (e.key === " " || e.key.toLowerCase() === "s") {
         e.preventDefault();
+        if (e.repeat) return;
         toggleLightboxSelection();
       } else if (e.key.toLowerCase() === "f") {
+        if (e.repeat) return;
         toggleLightboxFavorite();
       } else if (e.key.toLowerCase() === "r" || e.key.toLowerCase() === "m") {
         e.preventDefault();
+        if (e.repeat) return;
         toggleLightboxStackMode();
       }
     }

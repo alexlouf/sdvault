@@ -404,7 +404,8 @@ input[type="text"]:focus {
   justify-content: center;
   transition: all 0.2s ease;
 }
-.day-checkbox:checked {
+.day-checkbox:checked,
+.day-checkbox:indeterminate {
   background: var(--accent-blue);
   border-color: var(--accent-blue);
 }
@@ -412,6 +413,12 @@ input[type="text"]:focus {
   content: '✓';
   color: white;
   font-size: 12px;
+  font-weight: bold;
+}
+.day-checkbox:indeterminate::before {
+  content: '−';
+  color: white;
+  font-size: 14px;
   font-weight: bold;
 }
 
@@ -601,7 +608,8 @@ input[type="text"]:focus {
   transition: all 0.2s ease;
   background: rgba(0, 0, 0, 0.5);
 }
-.item-checkbox:checked {
+.item-checkbox:checked,
+.item-checkbox:indeterminate {
   background: var(--accent-blue);
   border-color: var(--accent-blue);
 }
@@ -609,6 +617,12 @@ input[type="text"]:focus {
   content: '✓';
   color: white;
   font-size: 11px;
+  font-weight: bold;
+}
+.item-checkbox:indeterminate::before {
+  content: '−';
+  color: white;
+  font-size: 13px;
   font-weight: bold;
 }
 

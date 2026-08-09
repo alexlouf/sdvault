@@ -209,6 +209,8 @@ function isFilenameSequence(name1, name2) {
 
 // Render timeline grid based on scannedDays
 function renderTimeline() {
+  const scrollTop = elTimelineArea ? elTimelineArea.scrollTop : 0;
+  if (!elTimelineArea) return;
   elTimelineArea.innerHTML = '';
   const dates = Object.keys(scannedDays).sort((a, b) => b.localeCompare(a));
 
@@ -306,17 +308,18 @@ function renderTimeline() {
       daySuffixes[date] = e.target.value;
     });
 
-    if (dayHasStacks) {
-      dayBlock.querySelectorAll('.btn-day-mode').forEach(btn => {
+    dayBlock.querySelectorAll('.btn-day-mode').forEach(btn => {
         btn.addEventListener('click', () => {
           setDayStackMode(date, btn.dataset.mode);
         });
       });
     }
 
+    updateDayHeaderSelectionState(dayBlock);
     elTimelineArea.appendChild(dayBlock);
   });
 
+  if (elTimelineArea) elTimelineArea.scrollTop = scrollTop;
   refreshIcons();
 }
 
@@ -438,18 +441,38 @@ function renderStandardCard(item, grid) {
   grid.appendChild(card);
 }
 
+// Calculate selection info for a burst item
+function getBurstSelectionInfo(burstItem) {
+  let selectedCount = 0;
+  const totalCount = burstItem.items.length;
+
+  burstItem.items.forEach(item => {
+    const isSel = item.type === 'stack'
+      ? selectedFiles.has(item.jpgFile.path)
+      : selectedFiles.has(item.files[0].path);
+    if (isSel) selectedCount++;
+  });
+
+  return {
+    selectedCount,
+    totalCount,
+    isAll: selectedCount === totalCount && totalCount > 0,
+    isNone: selectedCount === 0,
+    isPartial: selectedCount > 0 && selectedCount < totalCount
+  };
+}
+
 // Render a Burst Stack Card (showing cover image thumbnail = last photo of burst sequence)
 function renderBurstCard(burstItem, grid) {
   const coverItem = burstItem.items[burstItem.coverIndex];
-  const isSelected = coverItem.type === 'stack'
-    ? selectedFiles.has(coverItem.jpgFile.path)
-    : selectedFiles.has(coverItem.files[0].path);
-  const isStarred = coverItem.type === 'stack'
-    ? favoriteFiles.has(coverItem.jpgFile.path)
-    : favoriteFiles.has(coverItem.files[0].path);
+  const info = getBurstSelectionInfo(burstItem);
+  const isStarred = burstItem.items.some(item =>
+    item.type === 'stack' ? favoriteFiles.has(item.jpgFile.path) : favoriteFiles.has(item.files[0].path)
+  );
 
   const card = document.createElement('div');
-  card.className = `file-card card-burst ${isSelected ? 'selected' : ''}`;
+  const isCardActive = !info.isNone;
+  card.className = `file-card card-burst ${isCardActive ? 'selected' : ''}`;
   card.dataset.path = coverItem.type === 'stack' ? coverItem.jpgFile.path : coverItem.files[0].path;
 
   let previewHTML = coverItem.thumbnail_url 
@@ -461,7 +484,7 @@ function renderBurstCard(burstItem, grid) {
     <span class="type-badge badge-burst"><i data-lucide="zap"></i> Rafale (${burstItem.items.length})</span>
     <div class="card-overlay">
       <div class="overlay-top">
-        <input type="checkbox" class="item-checkbox" ${isSelected ? 'checked' : ''} />
+        <input type="checkbox" class="item-checkbox" />
         <div style="display: flex; gap: 8px; align-items: center;">
           <button class="btn-preview-zoom btn-inspect-trigger" title="Inspecter la rafale">
             <i data-lucide="eye"></i>
@@ -472,7 +495,7 @@ function renderBurstCard(burstItem, grid) {
         </div>
       </div>
       <div class="overlay-bottom">
-        <span class="file-name" title="${coverItem.name}">${coverItem.name} <small>(Dernière)</small></span>
+        <span class="file-name" title="${coverItem.name}">${coverItem.name} <small>(${info.selectedCount}/${info.totalCount} sél.)</small></span>
         <div class="stack-row" style="margin-top: 4px;">
           <span class="file-size">${formatBytes(coverItem.size)}</span>
           <button class="btn-inspect-burst"><i data-lucide="zap"></i> Inspecter (${burstItem.items.length})</button>
@@ -481,22 +504,30 @@ function renderBurstCard(burstItem, grid) {
     </div>
   `;
 
+  const cb = card.querySelector('.item-checkbox');
+  if (cb) {
+    cb.checked = info.isAll;
+    cb.indeterminate = info.isPartial;
+  }
+
   card.addEventListener('click', (e) => {
     if (e.target.closest('input') || e.target.closest('button')) return;
-    toggleItemSelection(coverItem, card);
+    toggleBurstSelection(burstItem, card);
   });
 
   card.addEventListener('dblclick', () => {
     openBurstInspector(burstItem);
   });
 
-  card.querySelector('.item-checkbox').addEventListener('change', () => {
-    toggleItemSelection(coverItem, card);
-  });
+  if (cb) {
+    cb.addEventListener('change', () => {
+      toggleBurstSelection(burstItem, card);
+    });
+  }
 
   card.querySelector('.btn-star').addEventListener('click', (e) => {
     e.stopPropagation();
-    toggleItemFavorite(coverItem, card.querySelector('.btn-star'));
+    toggleBurstFavorite(burstItem, card.querySelector('.btn-star'));
   });
 
   card.querySelector('.btn-inspect-burst').addEventListener('click', (e) => {
@@ -663,20 +694,96 @@ function updateDayHeaderSelectionState(dayBlockEl) {
   if (!dayBlockEl) return;
   const date = dayBlockEl.dataset.date;
   const files = scannedDays[date];
+  if (!files) return;
   const items = groupDayItems(files);
   const dayCheckbox = dayBlockEl.querySelector('.day-checkbox');
+  if (!dayCheckbox) return;
 
-  const isAllSelected = items.every(item => {
+  let totalCount = 0;
+  let selectedCount = 0;
+
+  items.forEach(item => {
+    totalCount++;
     if (item.type === 'burst') {
-      const coverItem = item.items[item.coverIndex];
-      return coverItem.type === 'stack' ? selectedFiles.has(coverItem.jpgFile.path) : selectedFiles.has(coverItem.files[0].path);
+      const burstInfo = getBurstSelectionInfo(item);
+      if (burstInfo.isAll) {
+        selectedCount++;
+      } else if (burstInfo.isPartial) {
+        selectedCount += 0.5;
+      }
     } else if (item.type === 'stack') {
-      return selectedFiles.has(item.jpgFile.path);
+      if (selectedFiles.has(item.jpgFile.path)) selectedCount++;
+    } else {
+      if (selectedFiles.has(item.files[0].path)) selectedCount++;
     }
-    return selectedFiles.has(item.files[0].path);
   });
 
-  if (dayCheckbox) dayCheckbox.checked = isAllSelected;
+  if (selectedCount === 0) {
+    dayCheckbox.checked = false;
+    dayCheckbox.indeterminate = false;
+  } else if (selectedCount >= totalCount) {
+    dayCheckbox.checked = true;
+    dayCheckbox.indeterminate = false;
+  } else {
+    dayCheckbox.checked = false;
+    dayCheckbox.indeterminate = true;
+  }
+}
+
+// Toggle burst selection
+function toggleBurstSelection(burstItem, cardEl) {
+  const info = getBurstSelectionInfo(burstItem);
+  const shouldSelectAll = !info.isAll;
+
+  burstItem.items.forEach(item => {
+    if (shouldSelectAll) {
+      if (item.type === 'stack') {
+        const baseKey = item.jpgFile.name.substring(0, item.jpgFile.name.lastIndexOf('.')).toLowerCase();
+        const mode = stackModes[baseKey] || 'both';
+        selectedFiles.add(item.jpgFile.path);
+        if (mode === 'both') selectedFiles.add(item.rawFile.path);
+      } else {
+        selectedFiles.add(item.files[0].path);
+      }
+    } else {
+      item.files.forEach(f => selectedFiles.delete(f.path));
+    }
+  });
+
+  if (cardEl) {
+    const updatedInfo = getBurstSelectionInfo(burstItem);
+    cardEl.classList.toggle('selected', !updatedInfo.isNone);
+    const cb = cardEl.querySelector('.item-checkbox');
+    if (cb) {
+      cb.checked = updatedInfo.isAll;
+      cb.indeterminate = updatedInfo.isPartial;
+    }
+    const labelSmall = cardEl.querySelector('.file-name small');
+    if (labelSmall) {
+      labelSmall.textContent = `(${updatedInfo.selectedCount}/${updatedInfo.totalCount} sél.)`;
+    }
+    updateDayHeaderSelectionState(cardEl.closest('.day-block'));
+  }
+  updateSummary();
+}
+
+// Toggle burst favorite
+function toggleBurstFavorite(burstItem, starBtnEl) {
+  const isAnyStarred = burstItem.items.some(item =>
+    item.type === 'stack' ? favoriteFiles.has(item.jpgFile.path) : favoriteFiles.has(item.files[0].path)
+  );
+
+  burstItem.items.forEach(item => {
+    item.files.forEach(f => {
+      if (isAnyStarred) favoriteFiles.delete(f.path);
+      else favoriteFiles.add(f.path);
+    });
+  });
+
+  if (starBtnEl) {
+    starBtnEl.classList.toggle('starred', !isAnyStarred);
+  }
+  updateSummary();
 }
 
 // Toggle item favorite state
@@ -785,6 +892,8 @@ function closeLightbox() {
   elLightboxImg.src = "";
   elLightboxVideo.pause();
   elLightboxVideo.src = "";
+  renderTimeline();
+  updateSummary();
 }
 
 function navigateLightbox(direction) {

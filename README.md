@@ -79,7 +79,8 @@
 | :--- | :--- |
 | `Double-Clic` | Ouvrir la photo en plein écran (Lightbox) ou la rafale (Inspecteur) |
 | `←` / `→` | Photo précédente / suivante dans la Lightbox ou la Rafale |
-| `Espace` ou `S` | Basculer la sélection pour l'import |
+| `Espace` ou `S` | Basculer la sélection pour l'importation |
+| `R` ou `M` | **Bascule de mode : RAW+JPG ↔ JPG Seul** |
 | `F` | Mettre / retirer des favoris (Étoile) |
 | `Échap` | Fermer la Lightbox ou l'Inspecteur de rafale |
 

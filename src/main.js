@@ -405,7 +405,10 @@ function renderStandardCard(item, grid) {
 
   card.addEventListener('dblclick', () => {
     lightboxItems = getTimelineItems();
-    const currentIdx = lightboxItems.findIndex(x => x.files && x.files.some(f => item.files.some(i => i.path === f.path)));
+    const currentIdx = lightboxItems.findIndex(x => {
+      if (x.type === 'burst') return false;
+      return x.files && x.files.some(f => item.files.some(i => i.path === f.path));
+    });
     openLightbox(currentIdx);
   });
 
@@ -421,7 +424,10 @@ function renderStandardCard(item, grid) {
   card.querySelector('.btn-preview-zoom').addEventListener('click', (e) => {
     e.stopPropagation();
     lightboxItems = getTimelineItems();
-    const currentIdx = lightboxItems.findIndex(x => x.files && x.files.some(f => item.files.some(i => i.path === f.path)));
+    const currentIdx = lightboxItems.findIndex(x => {
+      if (x.type === 'burst') return false;
+      return x.files && x.files.some(f => item.files.some(i => i.path === f.path));
+    });
     openLightbox(currentIdx);
   });
 
@@ -513,9 +519,19 @@ function renderBurstCard(burstItem, grid) {
     toggleBurstSelection(burstItem, card);
   });
 
-  card.addEventListener('dblclick', () => {
+  const handleOpenBurst = () => {
+    lightboxItems = getTimelineItems();
+    const coverPath = coverItem.type === 'stack' ? coverItem.jpgFile.path : coverItem.files[0].path;
+    lightboxIndex = lightboxItems.findIndex(x => {
+      if (x.type !== 'burst') return false;
+      const xCover = x.items[x.coverIndex];
+      const xCoverPath = xCover.type === 'stack' ? xCover.jpgFile.path : xCover.files[0].path;
+      return xCoverPath === coverPath;
+    });
     openBurstInspector(burstItem);
-  });
+  };
+
+  card.addEventListener('dblclick', handleOpenBurst);
 
   if (cb) {
     cb.addEventListener('change', () => {
@@ -530,12 +546,12 @@ function renderBurstCard(burstItem, grid) {
 
   card.querySelector('.btn-inspect-burst').addEventListener('click', (e) => {
     e.stopPropagation();
-    openBurstInspector(burstItem);
+    handleOpenBurst();
   });
 
   card.querySelector('.btn-inspect-trigger').addEventListener('click', (e) => {
     e.stopPropagation();
-    openBurstInspector(burstItem);
+    handleOpenBurst();
   });
 
   grid.appendChild(card);
@@ -812,7 +828,7 @@ function toggleItemFavorite(item, starBtnEl) {
   }
 }
 
-// Compile a flat ordered array of all items in timeline
+// Compile an ordered array of all items (single, stack, burst) in timeline
 function getTimelineItems() {
   const dates = Object.keys(scannedDays).sort((a, b) => b.localeCompare(a));
   const allItems = [];
@@ -820,11 +836,7 @@ function getTimelineItems() {
     const files = scannedDays[date];
     const items = groupDayItems(files);
     items.forEach(it => {
-      if (it.type === 'burst') {
-        it.items.forEach(sub => allItems.push(sub));
-      } else {
-        allItems.push(it);
-      }
+      allItems.push(it);
     });
   });
   return allItems;
@@ -834,10 +846,17 @@ function getTimelineItems() {
 // Lightbox Operations
 // ----------------------------------------------------
 
-function openLightbox(index) {
+function openLightbox(index, direction = 0) {
   if (index < 0 || index >= lightboxItems.length) return;
   lightboxIndex = index;
   const item = lightboxItems[index];
+
+  if (item.type === 'burst') {
+    elModalLightbox.classList.add("hidden");
+    const startIdx = direction === 1 ? 0 : (direction === -1 ? item.items.length - 1 : undefined);
+    openBurstInspector(item, startIdx);
+    return;
+  }
 
   elLightboxImg.classList.add("hidden");
   elLightboxVideo.classList.add("hidden");
@@ -897,7 +916,7 @@ function closeLightbox() {
 function navigateLightbox(direction) {
   const newIdx = lightboxIndex + direction;
   if (newIdx >= 0 && newIdx < lightboxItems.length) {
-    openLightbox(newIdx);
+    openLightbox(newIdx, direction);
   }
 }
 
@@ -905,10 +924,14 @@ function navigateLightbox(direction) {
 // Burst Inspector Implementation
 // ----------------------------------------------------
 
-function openBurstInspector(burstItem) {
+function openBurstInspector(burstItem, startIdx) {
   currentBurstItem = burstItem;
-  // Start at cover photo index (the LAST photo of the sequence by default)
-  activeBurstIdx = burstItem.coverIndex !== undefined ? burstItem.coverIndex : burstItem.items.length - 1;
+  if (startIdx !== undefined) {
+    activeBurstIdx = startIdx;
+  } else {
+    // Start at cover photo index (the LAST photo of the sequence by default)
+    activeBurstIdx = burstItem.coverIndex !== undefined ? burstItem.coverIndex : burstItem.items.length - 1;
+  }
   burstViewMode = 'solo';
 
   elModalBurstInspector.classList.remove("hidden");
@@ -929,6 +952,13 @@ function renderBurstInspector() {
   const total = currentBurstItem.items.length;
   const activeItem = currentBurstItem.items[activeBurstIdx];
   const coverItem = currentBurstItem.items[currentBurstItem.coverIndex];
+
+  if (elBtnBurstPrev && elBtnBurstNext) {
+    const isFirstInTimeline = lightboxIndex === 0 && activeBurstIdx === 0;
+    const isLastInTimeline = (lightboxIndex === lightboxItems.length - 1 || lightboxItems.length === 0) && activeBurstIdx === total - 1;
+    elBtnBurstPrev.style.visibility = isFirstInTimeline ? "hidden" : "visible";
+    elBtnBurstNext.style.visibility = isLastInTimeline ? "hidden" : "visible";
+  }
 
   // Header texts
   elBurstInspectorTitle.textContent = `Visionneuse de Rafale (${total} photos)`;
@@ -1432,6 +1462,9 @@ window.addEventListener("DOMContentLoaded", () => {
     if (currentBurstItem && activeBurstIdx > 0) {
       activeBurstIdx--;
       renderBurstInspector();
+    } else if (lightboxIndex !== -1 && lightboxIndex > 0) {
+      closeBurstInspector();
+      openLightbox(lightboxIndex - 1, -1);
     }
   });
 
@@ -1439,6 +1472,9 @@ window.addEventListener("DOMContentLoaded", () => {
     if (currentBurstItem && activeBurstIdx < currentBurstItem.items.length - 1) {
       activeBurstIdx++;
       renderBurstInspector();
+    } else if (lightboxIndex !== -1 && lightboxIndex < lightboxItems.length - 1) {
+      closeBurstInspector();
+      openLightbox(lightboxIndex + 1, 1);
     }
   });
 
@@ -1498,11 +1534,17 @@ window.addEventListener("DOMContentLoaded", () => {
         if (activeBurstIdx > 0) {
           activeBurstIdx--;
           renderBurstInspector();
+        } else if (lightboxIndex !== -1 && lightboxIndex > 0) {
+          closeBurstInspector();
+          openLightbox(lightboxIndex - 1, -1);
         }
       } else if (e.key === "ArrowRight") {
         if (activeBurstIdx < currentBurstItem.items.length - 1) {
           activeBurstIdx++;
           renderBurstInspector();
+        } else if (lightboxIndex !== -1 && lightboxIndex < lightboxItems.length - 1) {
+          closeBurstInspector();
+          openLightbox(lightboxIndex + 1, 1);
         }
       } else if (e.key === " " || e.key.toLowerCase() === "s") {
         e.preventDefault();

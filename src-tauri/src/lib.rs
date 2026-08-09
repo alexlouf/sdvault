@@ -313,6 +313,11 @@ async fn scan_source(app: tauri::AppHandle, source_path: String) -> Result<HashM
 }
 
 #[tauri::command]
+fn get_app_version(app: tauri::AppHandle) -> String {
+    app.package_info().version.to_string()
+}
+
+#[tauri::command]
 async fn start_import(app: tauri::AppHandle, destination: String, days: Vec<DayImportConfig>, delete_source: bool) -> Result<(), String> {
     let dest_dir = Path::new(&destination);
     if !dest_dir.exists() {
@@ -566,7 +571,7 @@ pub fn run() {
                 .body(bytes)
                 .unwrap()
         })
-        .invoke_handler(tauri::generate_handler![scan_source, start_import, select_folder])
+        .invoke_handler(tauri::generate_handler![scan_source, start_import, select_folder, get_app_version])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

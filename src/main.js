@@ -1317,7 +1317,7 @@ function updateTimelineCardVisuals(item) {
 // DOMContentLoaded Event Binding
 // ----------------------------------------------------
 
-window.addEventListener("DOMContentLoaded", () => {
+window.addEventListener("DOMContentLoaded", async () => {
   // Bind UI References
   elSourcePath = document.querySelector("#source-path");
   elDestPath = document.querySelector("#dest-path");
@@ -1335,6 +1335,21 @@ window.addEventListener("DOMContentLoaded", () => {
   elImportStatusText = document.querySelector("#import-status-text");
   elImportReportView = document.querySelector("#import-report-view");
   elBtnModalClose = document.querySelector("#btn-modal-close");
+  elStatCopied = document.querySelector("#stat-copied");
+  elStatFavs = document.querySelector("#stat-favs");
+  elStatSaved = document.querySelector("#stat-saved");
+
+  // Fetch and display version
+  try {
+    const version = await invoke("get_app_version");
+    const badge = document.querySelector("#app-version-badge");
+    if (badge && version) {
+      badge.textContent = "v" + version;
+    }
+  } catch (e) {
+    console.warn("Could not fetch app version:", e);
+  }
+  
   elBtnSelectSource = document.querySelector("#btn-select-source");
   elBtnSelectDest = document.querySelector("#btn-select-dest");
   

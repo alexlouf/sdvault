@@ -10,7 +10,7 @@
     "withGlobalTauri": true,
     "windows": [
       {
-        "title": "SD-Vault v2",
+        "title": "SD-Vault",
         "width": 1150,
         "height": 800,
         "transparent": false,

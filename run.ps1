@@ -1,4 +1,4 @@
-# SD-Vault v2 - Launch Script
+# SD-Vault - Launch Script
 # Configures the portable compiler paths and starts the Tauri dev server.
 
 $devkitBin = Join-Path $env:TEMP "w64devkit_extracted\w64devkit\bin"

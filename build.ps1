@@ -1,4 +1,4 @@
-# SD-Vault v2 - Production Build Script
+# SD-Vault - Production Build Script
 # Configures compiler paths and compiles the application without running it.
 
 $devkitBin = Join-Path $env:TEMP "w64devkit_extracted\w64devkit\bin"

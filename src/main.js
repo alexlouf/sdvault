@@ -20,6 +20,31 @@ const invoke = (...args) => tauriCore.invoke(...args);
 const listen = (...args) => tauriEvent.listen(...args);
 
 // ----------------------------------------------------
+// Image Web Worker
+// ----------------------------------------------------
+const imageWorker = new Worker('imageWorker.js');
+let workerJobId = 0;
+const workerJobs = new Map();
+
+imageWorker.onmessage = (e) => {
+    const { id, bitmap, error, success } = e.data;
+    if (workerJobs.has(id)) {
+        const { resolve, reject } = workerJobs.get(id);
+        workerJobs.delete(id);
+        if (success) resolve(bitmap);
+        else reject(new Error(error));
+    }
+};
+
+function decodeImageOffThread(url) {
+    return new Promise((resolve, reject) => {
+        const id = ++workerJobId;
+        workerJobs.set(id, { resolve, reject });
+        imageWorker.postMessage({ url, id });
+    });
+}
+
+// ----------------------------------------------------
 // Application State
 // ----------------------------------------------------
 let scannedDays = {};          // { [date]: MediaFile[] }
@@ -65,10 +90,14 @@ let elBtnBurstSelectAll, elBtnBurstDeselectAll;
 let elBtnBurstPrev, elBtnBurstNext, elBurstFilmstrip;
 
 // Refresh Lucide icons
-function refreshIcons() {
+function refreshIcons(rootNode = null) {
   const lucideLib = window.lucide || (typeof exports !== 'undefined' ? exports : null);
   if (lucideLib && lucideLib.createIcons) {
-    lucideLib.createIcons();
+    if (rootNode) {
+      lucideLib.createIcons({ root: rootNode });
+    } else {
+      lucideLib.createIcons();
+    }
   } else {
     console.warn("Lucide library not found. Icons will not be rendered.");
   }
@@ -889,9 +918,36 @@ function openLightbox(index, direction = 0) {
     elLightboxVideo.src = `http://vault-asset.localhost/${item.files[0].path}`;
     elLightboxVideo.classList.remove("hidden");
   } else if (item.thumbnail_url) {
-    elLightboxImg.src = `${item.thumbnail_url}?full=true`;
+    // Initialize Canvas Context
+    const ctx = elLightboxImg.getContext('2d');
+    
+    // Clear canvas before drawing
+    ctx.clearRect(0, 0, elLightboxImg.width, elLightboxImg.height);
     elLightboxImg.classList.remove("hidden");
     if (elLightboxImg.resetZoom) elLightboxImg.resetZoom();
+
+    // 1. Affiche l'image légère (thumbnail) instantanément pour la réactivité
+    const thumb = new Image();
+    thumb.src = item.thumbnail_url;
+    thumb.onload = () => {
+        // Dessine le thumbnail flou pour patienter (seulement si la HD n'est pas déjà dessinée)
+        if (elLightboxImg.width === 0 || elLightboxImg.width === 300) { 
+            elLightboxImg.width = thumb.width;
+            elLightboxImg.height = thumb.height;
+            ctx.drawImage(thumb, 0, 0);
+        }
+    };
+
+    // 2. Décodage HD hors thread via Web Worker
+    const hdUrl = `${item.thumbnail_url}?full=true`;
+    decodeImageOffThread(hdUrl).then(bitmap => {
+      // Vérifie qu'on n'a pas changé de photo entre temps
+      if (lightboxItems[lightboxIndex] === item) {
+        elLightboxImg.width = bitmap.width;
+        elLightboxImg.height = bitmap.height;
+        ctx.drawImage(bitmap, 0, 0);
+      }
+    }).catch(e => console.error("Erreur décodage HD Worker:", e));
   }
 
   elLightboxFilename.textContent = item.name;
@@ -995,15 +1051,58 @@ function renderBurstInspector() {
   if (burstViewMode === 'solo') {
     elBurstStageSolo.classList.remove('hidden');
     elBurstStageSplit.classList.add('hidden');
-    elBurstSoloImg.src = `${activeItem.thumbnail_url}?full=true`;
+    
+    const ctx = elBurstSoloImg.getContext('2d');
+    ctx.clearRect(0, 0, elBurstSoloImg.width, elBurstSoloImg.height);
     if (elBurstSoloImg.resetZoom) elBurstSoloImg.resetZoom();
+
+    const thumb = new Image();
+    thumb.src = activeItem.thumbnail_url;
+    thumb.onload = () => {
+        if (elBurstSoloImg.width === 0 || elBurstSoloImg.width === 300) {
+            elBurstSoloImg.width = thumb.width;
+            elBurstSoloImg.height = thumb.height;
+            ctx.drawImage(thumb, 0, 0);
+        }
+    };
+
+    decodeImageOffThread(`${activeItem.thumbnail_url}?full=true`).then(bitmap => {
+        if (burstViewMode === 'solo' && currentBurstItem && activeBurstIdx === currentBurstItem.items.indexOf(activeItem)) {
+            elBurstSoloImg.width = bitmap.width;
+            elBurstSoloImg.height = bitmap.height;
+            ctx.drawImage(bitmap, 0, 0);
+        }
+    }).catch(console.error);
+
   } else {
     elBurstStageSolo.classList.add('hidden');
     elBurstStageSplit.classList.remove('hidden');
-    elBurstSplitImgActive.src = `${activeItem.thumbnail_url}?full=true`;
-    elBurstSplitImgRef.src = `${coverItem.thumbnail_url}?full=true`;
+    
+    const ctxActive = elBurstSplitImgActive.getContext('2d');
+    const ctxRef = elBurstSplitImgRef.getContext('2d');
+    ctxActive.clearRect(0, 0, elBurstSplitImgActive.width, elBurstSplitImgActive.height);
+    ctxRef.clearRect(0, 0, elBurstSplitImgRef.width, elBurstSplitImgRef.height);
     if (elBurstSplitImgActive.resetZoom) elBurstSplitImgActive.resetZoom();
     if (elBurstSplitImgRef.resetZoom) elBurstSplitImgRef.resetZoom();
+
+    // Quick thumbnails
+    const thumbActive = new Image(); thumbActive.src = activeItem.thumbnail_url;
+    thumbActive.onload = () => { if (elBurstSplitImgActive.width === 0 || elBurstSplitImgActive.width === 300) { elBurstSplitImgActive.width = thumbActive.width; elBurstSplitImgActive.height = thumbActive.height; ctxActive.drawImage(thumbActive, 0, 0); }};
+    const thumbRef = new Image(); thumbRef.src = coverItem.thumbnail_url;
+    thumbRef.onload = () => { if (elBurstSplitImgRef.width === 0 || elBurstSplitImgRef.width === 300) { elBurstSplitImgRef.width = thumbRef.width; elBurstSplitImgRef.height = thumbRef.height; ctxRef.drawImage(thumbRef, 0, 0); }};
+
+    decodeImageOffThread(`${activeItem.thumbnail_url}?full=true`).then(bitmap => {
+        if (burstViewMode === 'split' && currentBurstItem && activeBurstIdx === currentBurstItem.items.indexOf(activeItem)) {
+            elBurstSplitImgActive.width = bitmap.width; elBurstSplitImgActive.height = bitmap.height; ctxActive.drawImage(bitmap, 0, 0);
+        }
+    }).catch(console.error);
+    
+    decodeImageOffThread(`${coverItem.thumbnail_url}?full=true`).then(bitmap => {
+        if (burstViewMode === 'split' && currentBurstItem) {
+            elBurstSplitImgRef.width = bitmap.width; elBurstSplitImgRef.height = bitmap.height; ctxRef.drawImage(bitmap, 0, 0);
+        }
+    }).catch(console.error);
+
     elBurstSplitActiveNum.textContent = `${activeBurstIdx + 1}/${total}`;
   }
 
@@ -1068,7 +1167,7 @@ function renderBurstInspector() {
     elBurstFilmstrip.appendChild(tile);
   });
 
-  refreshIcons();
+  refreshIcons(elModalBurstInspector);
 }
 
 // ----------------------------------------------------
@@ -1287,7 +1386,7 @@ function toggleLightboxSelection() {
   updateLightboxSelectionVisuals(item);
   updateTimelineCardVisuals(item);
   updateSummary();
-  refreshIcons();
+  // refreshIcons(); // Removed to fix click lag
 }
 
 function toggleLightboxFavorite() {
@@ -1299,7 +1398,7 @@ function toggleLightboxFavorite() {
   updateLightboxSelectionVisuals(item);
   updateTimelineCardVisuals(item);
   updateSummary();
-  refreshIcons();
+  // refreshIcons(); // Removed to fix click lag
 }
 
 function toggleLightboxStackMode() {

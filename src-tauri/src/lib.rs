@@ -54,16 +54,59 @@ fn find_tiff_header_offset(path: &Path) -> Option<u64> {
     Some((pos + 6) as u64)
 }
 
+// Inject EXIF Orientation APP1 header into raw embedded JPEG previews if missing
+fn inject_exif_orientation_if_missing(buffer: Vec<u8>, orientation: u32) -> Vec<u8> {
+    if orientation <= 1 || buffer.len() < 4 || buffer[0] != 0xFF || buffer[1] != 0xD8 {
+        return buffer;
+    }
+    // Check if JPEG buffer already has an APP1 EXIF segment (0xFF, 0xE1)
+    if buffer[2] == 0xFF && buffer[3] == 0xE1 {
+        return buffer;
+    }
+
+    let orient_low = (orientation & 0xFF) as u8;
+    let orient_high = ((orientation >> 8) & 0xFF) as u8;
+    let app1: [u8; 36] = [
+        0xFF, 0xE1, // APP1 marker
+        0x00, 0x20, // Length (32 bytes following marker length field)
+        0x45, 0x78, 0x69, 0x66, 0x00, 0x00, // "Exif\0\0"
+        0x49, 0x49, // Little Endian ("II")
+        0x2A, 0x00, // Fixed 42
+        0x08, 0x00, 0x00, 0x00, // Offset to IFD0 (8)
+        0x01, 0x00, // 1 field count
+        0x12, 0x01, // Tag 0x0112 (Orientation)
+        0x03, 0x00, // Type 3 (SHORT)
+        0x01, 0x00, 0x00, 0x00, // Count 1
+        orient_low, orient_high, 0x00, 0x00, // Value + 2 bytes padding
+        0x00, 0x00, 0x00, 0x00, // Offset to next IFD (NULL)
+    ];
+
+    let mut result = Vec::with_capacity(buffer.len() + app1.len());
+    result.extend_from_slice(&buffer[0..2]);
+    result.extend_from_slice(&app1);
+    result.extend_from_slice(&buffer[2..]);
+    result
+}
+
 // Extract embedded JPEG preview from EXIF/TIFF containers (RAW or JPEG files)
 fn get_embedded_jpeg(path: &Path) -> Option<Vec<u8>> {
     let file = fs::File::open(path).ok()?;
     let mut reader = BufReader::new(file);
-    let exifreader = exif::Reader::new().read_from_container(&mut reader).ok()?;
-    
-    let offset_field = exifreader.get_field(exif::Tag::JPEGInterchangeFormat, exif::In(1))
-        .or_else(|| exifreader.get_field(exif::Tag::JPEGInterchangeFormat, exif::In::PRIMARY))?;
-    let length_field = exifreader.get_field(exif::Tag::JPEGInterchangeFormatLength, exif::In(1))
-        .or_else(|| exifreader.get_field(exif::Tag::JPEGInterchangeFormatLength, exif::In::PRIMARY))?;
+    let exifreader = exif::Reader::new().read_from_container(&mut reader).ok();
+
+    let orientation = exifreader.as_ref().and_then(|r| {
+        r.get_field(exif::Tag::Orientation, exif::In::PRIMARY)
+            .and_then(|f| f.value.get_uint(0))
+    }).unwrap_or(1);
+
+    let offset_field = exifreader.as_ref().and_then(|r| {
+        r.get_field(exif::Tag::JPEGInterchangeFormat, exif::In(1))
+            .or_else(|| r.get_field(exif::Tag::JPEGInterchangeFormat, exif::In::PRIMARY))
+    })?;
+    let length_field = exifreader.as_ref().and_then(|r| {
+        r.get_field(exif::Tag::JPEGInterchangeFormatLength, exif::In(1))
+            .or_else(|| r.get_field(exif::Tag::JPEGInterchangeFormatLength, exif::In::PRIMARY))
+    })?;
         
     let relative_offset = offset_field.value.get_uint(0)? as u64;
     let length = length_field.value.get_uint(0)? as usize;
@@ -79,8 +122,9 @@ fn get_embedded_jpeg(path: &Path) -> Option<Vec<u8>> {
     let mut buffer = vec![0u8; length];
     underlying_file.read_exact(&mut buffer).ok()?;
     
-    Some(buffer)
+    Some(inject_exif_orientation_if_missing(buffer, orientation))
 }
+
 // Find and extract the embedded JPEG preview from Canon CR3 files (ISOBMFF format)
 fn get_cr3_thumbnail(path: &Path) -> Option<Vec<u8>> {
     use std::io::Read;
@@ -107,7 +151,23 @@ fn get_cr3_thumbnail(path: &Path) -> Option<Vec<u8>> {
         .position(|window| window == jpeg_end_sig)
         .map(|pos| jpeg_start + pos + 2)?;
         
-    Some(buffer[jpeg_start..jpeg_end].to_vec())
+    let raw_jpeg = buffer[jpeg_start..jpeg_end].to_vec();
+    let orientation = get_raw_orientation(path);
+    Some(inject_exif_orientation_if_missing(raw_jpeg, orientation))
+}
+
+fn get_raw_orientation(path: &Path) -> u32 {
+    if let Ok(file) = fs::File::open(path) {
+        let mut reader = BufReader::new(file);
+        if let Ok(exifreader) = exif::Reader::new().read_from_container(&mut reader) {
+            if let Some(field) = exifreader.get_field(exif::Tag::Orientation, exif::In::PRIMARY) {
+                if let Some(val) = field.value.get_uint(0) {
+                    return val;
+                }
+            }
+        }
+    }
+    1
 }
 
 // Find and extract the embedded JPEG preview from Fujifilm RAF files
@@ -131,7 +191,9 @@ fn get_raf_thumbnail(path: &Path) -> Option<Vec<u8>> {
         .position(|window| window == jpeg_end_sig)
         .map(|pos| jpeg_start + pos + 2)?;
         
-    Some(buffer[jpeg_start..jpeg_end].to_vec())
+    let raw_jpeg = buffer[jpeg_start..jpeg_end].to_vec();
+    let orientation = get_raw_orientation(path);
+    Some(inject_exif_orientation_if_missing(raw_jpeg, orientation))
 }
 // Extract capture date (YYYY-MM-DD) and UNIX timestamp in milliseconds (with EXIF SubSecTime precision)
 fn get_capture_info(path: &Path, file_type: &str, metadata: &fs::Metadata) -> (String, u64) {

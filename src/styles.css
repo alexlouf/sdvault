@@ -1079,6 +1079,10 @@ input[type="text"]:focus {
 .lightbox-image {
   max-width: 100%;
   max-height: 75vh;
+  width: auto;
+  height: auto;
+  min-width: 0;
+  min-height: 0;
   object-fit: contain;
   border-radius: 12px;
   box-shadow: 0 20px 50px rgba(0,0,0,0.85);
@@ -1327,6 +1331,10 @@ input[type="text"]:focus {
 .burst-stage-img {
   max-width: 100%;
   max-height: 100%;
+  width: auto;
+  height: auto;
+  min-width: 0;
+  min-height: 0;
   object-fit: contain;
   border-radius: 8px;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6);

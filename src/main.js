@@ -1,3 +1,5 @@
+import { enableZoom } from './zoom.js';
+
 window.addEventListener("error", (e) => {
   alert("Global Error: " + e.message + " at " + e.filename + ":" + e.lineno);
 });
@@ -888,6 +890,7 @@ function openLightbox(index, direction = 0) {
   } else if (item.thumbnail_url) {
     elLightboxImg.src = `${item.thumbnail_url}?full=true`;
     elLightboxImg.classList.remove("hidden");
+    if (elLightboxImg.resetZoom) elLightboxImg.resetZoom();
   }
 
   elLightboxFilename.textContent = item.name;
@@ -992,11 +995,14 @@ function renderBurstInspector() {
     elBurstStageSolo.classList.remove('hidden');
     elBurstStageSplit.classList.add('hidden');
     elBurstSoloImg.src = `${activeItem.thumbnail_url}?full=true`;
+    if (elBurstSoloImg.resetZoom) elBurstSoloImg.resetZoom();
   } else {
     elBurstStageSolo.classList.add('hidden');
     elBurstStageSplit.classList.remove('hidden');
     elBurstSplitImgActive.src = `${activeItem.thumbnail_url}?full=true`;
     elBurstSplitImgRef.src = `${coverItem.thumbnail_url}?full=true`;
+    if (elBurstSplitImgActive.resetZoom) elBurstSplitImgActive.resetZoom();
+    if (elBurstSplitImgRef.resetZoom) elBurstSplitImgRef.resetZoom();
     elBurstSplitActiveNum.textContent = `${activeBurstIdx + 1}/${total}`;
   }
 
@@ -1398,6 +1404,12 @@ window.addEventListener("DOMContentLoaded", async () => {
   elBtnBurstPrev = document.querySelector("#btn-burst-prev");
   elBtnBurstNext = document.querySelector("#btn-burst-next");
   elBurstFilmstrip = document.querySelector("#burst-filmstrip");
+
+  // Enable Zoom
+  enableZoom(elLightboxImg);
+  enableZoom(elBurstSoloImg);
+  enableZoom(elBurstSplitImgActive);
+  enableZoom(elBurstSplitImgRef);
 
   // Event Listeners
   elBtnScan.addEventListener("click", startScan);

@@ -230,8 +230,21 @@
 
           <!-- Quick Action Toolbar for Burst -->
           <div class="burst-quick-actions">
-            <div class="action-left">
+            <div class="action-left" style="display: flex; align-items: center; gap: 16px;">
               <span id="burst-active-meta" class="burst-meta-text"></span>
+              
+              <!-- Individual Controls for the Active Item -->
+              <div class="lightbox-actions">
+                <input type="checkbox" id="btn-burst-active-select" class="item-checkbox" title="Sélectionner l'élément actif pour l'import (Espace)" />
+                <button id="btn-burst-active-star" class="btn-star" title="Ajouter l'élément actif aux favoris (F)">
+                  <i data-lucide="star"></i>
+                </button>
+              </div>
+              
+              <div id="burst-active-stack-control" class="stack-mode-pill hidden">
+                <span class="mode-opt" data-mode="both">RAW+JPG</span>
+                <span class="mode-opt" data-mode="jpg">JPG Seul</span>
+              </div>
             </div>
             <div class="action-buttons">
               <button id="btn-burst-keep-last" class="btn btn-secondary btn-sm" title="Conserver uniquement la dernière photo de la rafale">

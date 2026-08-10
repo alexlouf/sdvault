@@ -60,6 +60,7 @@ let elBtnBurstViewSolo, elBtnBurstViewSplit, elBtnBurstClose;
 let elBurstStageSolo, elBurstStageSplit, elBurstSoloImg;
 let elBurstSplitImgActive, elBurstSplitImgRef, elBurstSplitActiveNum;
 let elBurstActiveMeta, elBtnBurstKeepLast, elBtnBurstKeepStarred;
+let elBtnBurstActiveSelect, elBtnBurstActiveStar, elBurstActiveStackControl;
 let elBtnBurstSelectAll, elBtnBurstDeselectAll;
 let elBtnBurstPrev, elBtnBurstNext, elBurstFilmstrip;
 
@@ -842,7 +843,7 @@ function toggleItemFavorite(item, starBtnEl) {
       ? selectedFiles.has(item.jpgFile.path)
       : selectedFiles.has(item.files[0].path);
     if (!isSelected) {
-      toggleItemSelection(item, starBtnEl.closest('.file-card'));
+      toggleItemSelection(item, starBtnEl ? starBtnEl.closest('.file-card') : null);
     }
   } else {
     if (starBtnEl) starBtnEl.classList.remove('starred');
@@ -1010,9 +1011,26 @@ function renderBurstInspector() {
   const isSelected = activeItem.type === 'stack' ? selectedFiles.has(activeItem.jpgFile.path) : selectedFiles.has(activeItem.files[0].path);
   const isStarred = activeItem.type === 'stack' ? favoriteFiles.has(activeItem.jpgFile.path) : favoriteFiles.has(activeItem.files[0].path);
 
-  let metaDesc = `${activeItem.name} — ${formatBytes(activeItem.size)} — ${isSelected ? '☑ Sélectionnée pour import' : '☐ Non sélectionnée'}`;
+  elBtnBurstActiveSelect.checked = isSelected;
+  if (isStarred) {
+    elBtnBurstActiveStar.classList.add("starred");
+  } else {
+    elBtnBurstActiveStar.classList.remove("starred");
+  }
+
+  if (activeItem.type === "stack") {
+    elBurstActiveStackControl.classList.remove("hidden");
+    const smode = stackModes[activeItem.baseKey] || "both";
+    elBurstActiveStackControl.querySelectorAll('.mode-opt').forEach(opt => {
+      opt.classList.toggle('active', opt.dataset.mode === smode);
+    });
+  } else {
+    elBurstActiveStackControl.classList.add("hidden");
+  }
+
+  let metaDesc = `${activeItem.name} — ${formatBytes(activeItem.size)}`;
   if (activeBurstIdx === currentBurstItem.coverIndex) {
-    metaDesc += ` ⭐ [DERNIÈRE PHOTO / COUVERTURE]`;
+    metaDesc += ` ⭐ [DERNIÈRE PHOTO]`;
   }
   elBurstActiveMeta.textContent = metaDesc;
 
@@ -1397,6 +1415,9 @@ window.addEventListener("DOMContentLoaded", async () => {
   elBurstSplitImgRef = document.querySelector("#burst-split-img-ref");
   elBurstSplitActiveNum = document.querySelector("#burst-split-active-num");
   elBurstActiveMeta = document.querySelector("#burst-active-meta");
+  elBtnBurstActiveSelect = document.querySelector("#btn-burst-active-select");
+  elBtnBurstActiveStar = document.querySelector("#btn-burst-active-star");
+  elBurstActiveStackControl = document.querySelector("#burst-active-stack-control");
   elBtnBurstKeepLast = document.querySelector("#btn-burst-keep-last");
   elBtnBurstKeepStarred = document.querySelector("#btn-burst-keep-starred");
   elBtnBurstSelectAll = document.querySelector("#btn-burst-select-all");
@@ -1521,6 +1542,38 @@ window.addEventListener("DOMContentLoaded", async () => {
     } else if (lightboxIndex !== -1 && lightboxIndex < lightboxItems.length - 1) {
       closeBurstInspector();
       openLightbox(lightboxIndex + 1, 1);
+    }
+  });
+
+  elBtnBurstActiveSelect.addEventListener("change", (e) => {
+    if (!currentBurstItem) return;
+    const activeItem = currentBurstItem.items[activeBurstIdx];
+    toggleItemSelection(activeItem);
+    renderBurstInspector();
+  });
+
+  elBtnBurstActiveStar.addEventListener("click", () => {
+    if (!currentBurstItem) return;
+    const activeItem = currentBurstItem.items[activeBurstIdx];
+    toggleItemFavorite(activeItem);
+    renderBurstInspector();
+  });
+
+  elBurstActiveStackControl.addEventListener("click", (e) => {
+    if (!currentBurstItem) return;
+    const activeItem = currentBurstItem.items[activeBurstIdx];
+    if (activeItem.type !== "stack") return;
+    
+    if (e.target.classList.contains('mode-opt')) {
+      const mode = e.target.dataset.mode;
+      stackModes[activeItem.baseKey] = mode;
+      
+      const isCurrentlySelected = selectedFiles.has(activeItem.jpgFile.path) || (activeItem.rawFile && selectedFiles.has(activeItem.rawFile.path));
+      if (isCurrentlySelected) {
+        toggleItemSelection(activeItem);
+        toggleItemSelection(activeItem);
+      }
+      renderBurstInspector();
     }
   });
 

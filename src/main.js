@@ -614,6 +614,29 @@ function renderBurstCard(burstItem, grid) {
   grid.appendChild(card);
 }
 
+// Helper to select an item respecting stackModes (JPG vs RAW+JPG)
+function selectItem(item) {
+  if (!item) return;
+  if (item.type === 'stack') {
+    const baseKey = item.jpgFile.name.substring(0, item.jpgFile.name.lastIndexOf('.')).toLowerCase();
+    const mode = stackModes[baseKey] || 'both';
+    selectedFiles.add(item.jpgFile.path);
+    if (mode === 'both') {
+      if (item.rawFile) selectedFiles.add(item.rawFile.path);
+    } else {
+      if (item.rawFile) selectedFiles.delete(item.rawFile.path);
+    }
+  } else if (item.files && item.files.length > 0) {
+    selectedFiles.add(item.files[0].path);
+  }
+}
+
+// Helper to deselect an item
+function deselectItem(item) {
+  if (!item || !item.files) return;
+  item.files.forEach(f => selectedFiles.delete(f.path));
+}
+
 // Select/Deselect files for a specific day block
 function selectDayFiles(date, checked) {
   const files = scannedDays[date];
@@ -622,16 +645,12 @@ function selectDayFiles(date, checked) {
   items.forEach(item => {
     if (item.type === 'burst') {
       item.items.forEach(sub => {
-        sub.files.forEach(f => {
-          if (checked) selectedFiles.add(f.path);
-          else selectedFiles.delete(f.path);
-        });
+        if (checked) selectItem(sub);
+        else deselectItem(sub);
       });
     } else {
-      item.files.forEach(f => {
-        if (checked) selectedFiles.add(f.path);
-        else selectedFiles.delete(f.path);
-      });
+      if (checked) selectItem(item);
+      else deselectItem(item);
     }
   });
 
@@ -644,31 +663,27 @@ function setStackMode(baseKey, mode) {
   stackModes[baseKey] = mode;
   let rawFile = null;
   let jpgFile = null;
+  let matchedItem = null;
 
   for (const date of Object.keys(scannedDays)) {
     const files = scannedDays[date];
-    const match = files.filter(f => {
-      const dotIndex = f.name.lastIndexOf('.');
-      const bName = dotIndex !== -1 ? f.name.substring(0, dotIndex) : f.name;
-      return bName.toLowerCase() === baseKey;
-    });
-    if (match.length === 2) {
-      rawFile = match.find(f => f.file_type === 'raw');
-      jpgFile = match.find(f => f.file_type === 'jpg');
-      break;
+    const items = groupDayItems(files);
+    for (const item of items) {
+      if (item.type === 'burst') {
+        const found = item.items.find(it => it.type === 'stack' && it.jpgFile.name.substring(0, it.jpgFile.name.lastIndexOf('.')).toLowerCase() === baseKey);
+        if (found) { matchedItem = found; break; }
+      } else if (item.type === 'stack' && item.jpgFile.name.substring(0, item.jpgFile.name.lastIndexOf('.')).toLowerCase() === baseKey) {
+        matchedItem = item;
+        break;
+      }
     }
+    if (matchedItem) break;
   }
 
-  if (rawFile && jpgFile) {
-    const isSelected = selectedFiles.has(jpgFile.path) || selectedFiles.has(rawFile.path);
+  if (matchedItem) {
+    const isSelected = selectedFiles.has(matchedItem.jpgFile.path) || (matchedItem.rawFile && selectedFiles.has(matchedItem.rawFile.path));
     if (isSelected) {
-      if (mode === 'jpg') {
-        selectedFiles.delete(rawFile.path);
-        selectedFiles.add(jpgFile.path);
-      } else {
-        selectedFiles.add(rawFile.path);
-        selectedFiles.add(jpgFile.path);
-      }
+      selectItem(matchedItem);
     }
   }
 
@@ -692,15 +707,9 @@ function setDayStackMode(date, mode) {
     if (item.type === 'stack') {
       const baseKey = item.jpgFile.name.substring(0, item.jpgFile.name.lastIndexOf('.')).toLowerCase();
       stackModes[baseKey] = mode;
-      const isSelected = selectedFiles.has(item.jpgFile.path) || selectedFiles.has(item.rawFile.path);
+      const isSelected = selectedFiles.has(item.jpgFile.path) || (item.rawFile && selectedFiles.has(item.rawFile.path));
       if (isSelected) {
-        if (mode === 'jpg') {
-          selectedFiles.delete(item.rawFile.path);
-          selectedFiles.add(item.jpgFile.path);
-        } else {
-          selectedFiles.add(item.rawFile.path);
-          selectedFiles.add(item.jpgFile.path);
-        }
+        selectItem(item);
       }
     }
   };
@@ -723,24 +732,11 @@ function toggleItemSelection(item, cardEl) {
     ? selectedFiles.has(item.jpgFile.path) 
     : selectedFiles.has(item.files[0].path);
     
-  item.files.forEach(f => {
-    selectedFiles.delete(f.path);
-  });
+  deselectItem(item);
 
   const newSelectedState = !isSelected;
   if (newSelectedState) {
-    if (item.type === 'stack') {
-      const baseKey = item.jpgFile.name.substring(0, item.jpgFile.name.lastIndexOf('.')).toLowerCase();
-      const mode = stackModes[baseKey] || 'both';
-      if (mode === 'jpg') {
-        selectedFiles.add(item.jpgFile.path);
-      } else {
-        selectedFiles.add(item.jpgFile.path);
-        selectedFiles.add(item.rawFile.path);
-      }
-    } else {
-      selectedFiles.add(item.files[0].path);
-    }
+    selectItem(item);
     if (cardEl) {
       cardEl.classList.add('selected');
       const cb = cardEl.querySelector('.item-checkbox');
@@ -808,16 +804,9 @@ function toggleBurstSelection(burstItem, cardEl) {
 
   burstItem.items.forEach(item => {
     if (shouldSelectAll) {
-      if (item.type === 'stack') {
-        const baseKey = item.jpgFile.name.substring(0, item.jpgFile.name.lastIndexOf('.')).toLowerCase();
-        const mode = stackModes[baseKey] || 'both';
-        selectedFiles.add(item.jpgFile.path);
-        if (mode === 'both') selectedFiles.add(item.rawFile.path);
-      } else {
-        selectedFiles.add(item.files[0].path);
-      }
+      selectItem(item);
     } else {
-      item.files.forEach(f => selectedFiles.delete(f.path));
+      deselectItem(item);
     }
   });
 
@@ -1306,9 +1295,9 @@ async function startScan() {
         if (item.type === 'burst') {
           // Select ONLY the cover item (LAST photo) by default!
           const coverItem = item.items[item.coverIndex];
-          coverItem.files.forEach(f => selectedFiles.add(f.path));
+          selectItem(coverItem);
         } else {
-          item.files.forEach(f => selectedFiles.add(f.path));
+          selectItem(item);
         }
       });
     });
@@ -1728,8 +1717,7 @@ window.addEventListener("DOMContentLoaded", async () => {
       
       const isCurrentlySelected = selectedFiles.has(activeItem.jpgFile.path) || (activeItem.rawFile && selectedFiles.has(activeItem.rawFile.path));
       if (isCurrentlySelected) {
-        toggleItemSelection(activeItem);
-        toggleItemSelection(activeItem);
+        selectItem(activeItem);
       }
       renderBurstInspector();
     }
@@ -1738,10 +1726,8 @@ window.addEventListener("DOMContentLoaded", async () => {
   elBtnBurstKeepLast.addEventListener("click", () => {
     if (!currentBurstItem) return;
     const lastItem = currentBurstItem.items[currentBurstItem.coverIndex];
-    currentBurstItem.items.forEach(it => {
-      it.files.forEach(f => selectedFiles.delete(f.path));
-    });
-    lastItem.files.forEach(f => selectedFiles.add(f.path));
+    currentBurstItem.items.forEach(it => deselectItem(it));
+    selectItem(lastItem);
     renderBurstInspector();
     updateSummary();
   });
@@ -1750,10 +1736,8 @@ window.addEventListener("DOMContentLoaded", async () => {
     if (!currentBurstItem) return;
     currentBurstItem.items.forEach(it => {
       const isStarred = it.type === 'stack' ? favoriteFiles.has(it.jpgFile.path) : favoriteFiles.has(it.files[0].path);
-      it.files.forEach(f => {
-        if (isStarred) selectedFiles.add(f.path);
-        else selectedFiles.delete(f.path);
-      });
+      if (isStarred) selectItem(it);
+      else deselectItem(it);
     });
     renderBurstInspector();
     updateSummary();
@@ -1761,18 +1745,14 @@ window.addEventListener("DOMContentLoaded", async () => {
 
   elBtnBurstSelectAll.addEventListener("click", () => {
     if (!currentBurstItem) return;
-    currentBurstItem.items.forEach(it => {
-      it.files.forEach(f => selectedFiles.add(f.path));
-    });
+    currentBurstItem.items.forEach(it => selectItem(it));
     renderBurstInspector();
     updateSummary();
   });
 
   elBtnBurstDeselectAll.addEventListener("click", () => {
     if (!currentBurstItem) return;
-    currentBurstItem.items.forEach(it => {
-      it.files.forEach(f => selectedFiles.delete(f.path));
-    });
+    currentBurstItem.items.forEach(it => deselectItem(it));
     renderBurstInspector();
     updateSummary();
   });

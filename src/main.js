@@ -79,6 +79,12 @@ let elBtnLightboxSelect, elBtnLightboxStar;
 let lightboxItems = [];
 let lightboxIndex = -1;
 
+// Image load request trackers to prevent black photos and race conditions
+let currentLightboxLoadId = 0;
+let currentBurstSoloLoadId = 0;
+let currentBurstSplitActiveLoadId = 0;
+let currentBurstSplitRefLoadId = 0;
+
 // Burst Inspector Elements
 let elModalBurstInspector, elBurstInspectorTitle, elBurstInspectorSubtitle;
 let elBtnBurstViewSolo, elBtnBurstViewSplit, elBtnBurstClose;
@@ -918,6 +924,9 @@ function openLightbox(index, direction = 0) {
     elLightboxVideo.src = `http://vault-asset.localhost/${item.files[0].path}`;
     elLightboxVideo.classList.remove("hidden");
   } else if (item.thumbnail_url) {
+    const loadId = ++currentLightboxLoadId;
+    let hdLoaded = false;
+
     // Initialize Canvas Context
     const ctx = elLightboxImg.getContext('2d');
     
@@ -928,24 +937,31 @@ function openLightbox(index, direction = 0) {
 
     // 1. Affiche l'image légère (thumbnail) instantanément pour la réactivité
     const thumb = new Image();
-    thumb.src = item.thumbnail_url;
     thumb.onload = () => {
-        // Dessine le thumbnail flou pour patienter (seulement si la HD n'est pas déjà dessinée)
-        if (elLightboxImg.width === 0 || elLightboxImg.width === 300) { 
+        if (currentLightboxLoadId === loadId && !hdLoaded) { 
             elLightboxImg.width = thumb.width;
             elLightboxImg.height = thumb.height;
             ctx.drawImage(thumb, 0, 0);
         }
     };
+    thumb.onerror = () => {
+        if (currentLightboxLoadId === loadId && !hdLoaded) {
+            console.warn("Échec du chargement du thumbnail pour :", item.name);
+        }
+    };
+    thumb.src = item.thumbnail_url;
 
     // 2. Décodage HD hors thread via Web Worker
     const hdUrl = `${item.thumbnail_url}?full=true`;
     decodeImageOffThread(hdUrl).then(bitmap => {
-      // Vérifie qu'on n'a pas changé de photo entre temps
-      if (lightboxItems[lightboxIndex] === item) {
+      if (currentLightboxLoadId === loadId) {
+        hdLoaded = true;
         elLightboxImg.width = bitmap.width;
         elLightboxImg.height = bitmap.height;
         ctx.drawImage(bitmap, 0, 0);
+        bitmap.close();
+      } else {
+        bitmap.close();
       }
     }).catch(e => console.error("Erreur décodage HD Worker:", e));
   }
@@ -984,6 +1000,7 @@ function openLightbox(index, direction = 0) {
 }
 
 function closeLightbox() {
+  currentLightboxLoadId++;
   elModalLightbox.classList.add("hidden");
   elLightboxImg.src = "";
   elLightboxVideo.pause();
@@ -1019,6 +1036,9 @@ function openBurstInspector(burstItem, startIdx) {
 }
 
 function closeBurstInspector() {
+  currentBurstSoloLoadId++;
+  currentBurstSplitActiveLoadId++;
+  currentBurstSplitRefLoadId++;
   elModalBurstInspector.classList.add("hidden");
   currentBurstItem = null;
   renderTimeline();
@@ -1052,25 +1072,32 @@ function renderBurstInspector() {
     elBurstStageSolo.classList.remove('hidden');
     elBurstStageSplit.classList.add('hidden');
     
+    const loadId = ++currentBurstSoloLoadId;
+    let hdLoaded = false;
+
     const ctx = elBurstSoloImg.getContext('2d');
     ctx.clearRect(0, 0, elBurstSoloImg.width, elBurstSoloImg.height);
     if (elBurstSoloImg.resetZoom) elBurstSoloImg.resetZoom();
 
     const thumb = new Image();
-    thumb.src = activeItem.thumbnail_url;
     thumb.onload = () => {
-        if (elBurstSoloImg.width === 0 || elBurstSoloImg.width === 300) {
+        if (currentBurstSoloLoadId === loadId && !hdLoaded) {
             elBurstSoloImg.width = thumb.width;
             elBurstSoloImg.height = thumb.height;
             ctx.drawImage(thumb, 0, 0);
         }
     };
+    thumb.src = activeItem.thumbnail_url;
 
     decodeImageOffThread(`${activeItem.thumbnail_url}?full=true`).then(bitmap => {
-        if (burstViewMode === 'solo' && currentBurstItem && activeBurstIdx === currentBurstItem.items.indexOf(activeItem)) {
+        if (currentBurstSoloLoadId === loadId && burstViewMode === 'solo' && currentBurstItem) {
+            hdLoaded = true;
             elBurstSoloImg.width = bitmap.width;
             elBurstSoloImg.height = bitmap.height;
             ctx.drawImage(bitmap, 0, 0);
+            bitmap.close();
+        } else {
+            bitmap.close();
         }
     }).catch(console.error);
 
@@ -1078,6 +1105,11 @@ function renderBurstInspector() {
     elBurstStageSolo.classList.add('hidden');
     elBurstStageSplit.classList.remove('hidden');
     
+    const loadActiveId = ++currentBurstSplitActiveLoadId;
+    let hdActiveLoaded = false;
+    const loadRefId = ++currentBurstSplitRefLoadId;
+    let hdRefLoaded = false;
+
     const ctxActive = elBurstSplitImgActive.getContext('2d');
     const ctxRef = elBurstSplitImgRef.getContext('2d');
     ctxActive.clearRect(0, 0, elBurstSplitImgActive.width, elBurstSplitImgActive.height);
@@ -1086,20 +1118,47 @@ function renderBurstInspector() {
     if (elBurstSplitImgRef.resetZoom) elBurstSplitImgRef.resetZoom();
 
     // Quick thumbnails
-    const thumbActive = new Image(); thumbActive.src = activeItem.thumbnail_url;
-    thumbActive.onload = () => { if (elBurstSplitImgActive.width === 0 || elBurstSplitImgActive.width === 300) { elBurstSplitImgActive.width = thumbActive.width; elBurstSplitImgActive.height = thumbActive.height; ctxActive.drawImage(thumbActive, 0, 0); }};
-    const thumbRef = new Image(); thumbRef.src = coverItem.thumbnail_url;
-    thumbRef.onload = () => { if (elBurstSplitImgRef.width === 0 || elBurstSplitImgRef.width === 300) { elBurstSplitImgRef.width = thumbRef.width; elBurstSplitImgRef.height = thumbRef.height; ctxRef.drawImage(thumbRef, 0, 0); }};
+    const thumbActive = new Image();
+    thumbActive.onload = () => {
+      if (currentBurstSplitActiveLoadId === loadActiveId && !hdActiveLoaded) {
+        elBurstSplitImgActive.width = thumbActive.width;
+        elBurstSplitImgActive.height = thumbActive.height;
+        ctxActive.drawImage(thumbActive, 0, 0);
+      }
+    };
+    thumbActive.src = activeItem.thumbnail_url;
+
+    const thumbRef = new Image();
+    thumbRef.onload = () => {
+      if (currentBurstSplitRefLoadId === loadRefId && !hdRefLoaded) {
+        elBurstSplitImgRef.width = thumbRef.width;
+        elBurstSplitImgRef.height = thumbRef.height;
+        ctxRef.drawImage(thumbRef, 0, 0);
+      }
+    };
+    thumbRef.src = coverItem.thumbnail_url;
 
     decodeImageOffThread(`${activeItem.thumbnail_url}?full=true`).then(bitmap => {
-        if (burstViewMode === 'split' && currentBurstItem && activeBurstIdx === currentBurstItem.items.indexOf(activeItem)) {
-            elBurstSplitImgActive.width = bitmap.width; elBurstSplitImgActive.height = bitmap.height; ctxActive.drawImage(bitmap, 0, 0);
+        if (currentBurstSplitActiveLoadId === loadActiveId && burstViewMode === 'split' && currentBurstItem) {
+            hdActiveLoaded = true;
+            elBurstSplitImgActive.width = bitmap.width;
+            elBurstSplitImgActive.height = bitmap.height;
+            ctxActive.drawImage(bitmap, 0, 0);
+            bitmap.close();
+        } else {
+            bitmap.close();
         }
     }).catch(console.error);
     
     decodeImageOffThread(`${coverItem.thumbnail_url}?full=true`).then(bitmap => {
-        if (burstViewMode === 'split' && currentBurstItem) {
-            elBurstSplitImgRef.width = bitmap.width; elBurstSplitImgRef.height = bitmap.height; ctxRef.drawImage(bitmap, 0, 0);
+        if (currentBurstSplitRefLoadId === loadRefId && burstViewMode === 'split' && currentBurstItem) {
+            hdRefLoaded = true;
+            elBurstSplitImgRef.width = bitmap.width;
+            elBurstSplitImgRef.height = bitmap.height;
+            ctxRef.drawImage(bitmap, 0, 0);
+            bitmap.close();
+        } else {
+            bitmap.close();
         }
     }).catch(console.error);
 

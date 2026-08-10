@@ -956,29 +956,7 @@ function openLightbox(index, direction = 0) {
     }).catch(e => console.error("Erreur décodage HD Worker:", e));
   }
 
-  elLightboxFilename.textContent = item.name;
-  
-  let displaySize = item.size;
-  let activeExtensions = item.files.map(f => f.name.split('.').pop().toUpperCase()).join("+");
-  
-  if (item.type === 'stack') {
-    elLightboxStackControl.classList.remove("hidden");
-    const baseKey = item.jpgFile.name.substring(0, item.jpgFile.name.lastIndexOf('.')).toLowerCase();
-    const mode = stackModes[baseKey] || 'both';
-    
-    elLightboxStackControl.querySelectorAll('.mode-opt').forEach(opt => {
-      opt.classList.toggle("active", opt.dataset.mode === mode);
-    });
-    
-    if (mode === 'jpg') {
-      displaySize = item.jpgFile.size;
-      activeExtensions = 'JPG';
-    }
-  } else {
-    elLightboxStackControl.classList.add("hidden");
-  }
-  
-  elLightboxDetails.textContent = `${activeExtensions} — ${formatBytes(displaySize)} — ${item.date}`;
+  updateLightboxMetadata(item);
 
   elBtnLightboxPrev.style.display = index === 0 ? "none" : "flex";
   elBtnLightboxNext.style.display = index === lightboxItems.length - 1 ? "none" : "flex";
@@ -1036,26 +1014,15 @@ function closeBurstInspector() {
 }
 
 function renderBurstInspector() {
+  renderBurstInspectorCanvas();
+  updateBurstInspectorUI();
+}
+
+function renderBurstInspectorCanvas() {
   if (!currentBurstItem || !currentBurstItem.items.length) return;
 
-  const total = currentBurstItem.items.length;
   const activeItem = currentBurstItem.items[activeBurstIdx];
   const coverItem = currentBurstItem.items[currentBurstItem.coverIndex];
-
-  if (elBtnBurstPrev && elBtnBurstNext) {
-    const isFirstInTimeline = lightboxIndex === 0 && activeBurstIdx === 0;
-    const isLastInTimeline = (lightboxIndex === lightboxItems.length - 1 || lightboxItems.length === 0) && activeBurstIdx === total - 1;
-    elBtnBurstPrev.style.visibility = isFirstInTimeline ? "hidden" : "visible";
-    elBtnBurstNext.style.visibility = isLastInTimeline ? "hidden" : "visible";
-  }
-
-  // Header texts
-  elBurstInspectorTitle.textContent = `Visionneuse de Rafale (${total} photos)`;
-  elBurstInspectorSubtitle.textContent = `Du cliché 1 à ${total} — ${currentBurstItem.date}`;
-
-  // Mode toggles visuals
-  elBtnBurstViewSolo.classList.toggle('active', burstViewMode === 'solo');
-  elBtnBurstViewSplit.classList.toggle('active', burstViewMode === 'split');
 
   // Stages
   if (burstViewMode === 'solo') {
@@ -1154,6 +1121,28 @@ function renderBurstInspector() {
 
     elBurstSplitActiveNum.textContent = `${activeBurstIdx + 1}/${total}`;
   }
+}
+
+function updateBurstInspectorUI() {
+  if (!currentBurstItem || !currentBurstItem.items.length) return;
+
+  const total = currentBurstItem.items.length;
+  const activeItem = currentBurstItem.items[activeBurstIdx];
+
+  if (elBtnBurstPrev && elBtnBurstNext) {
+    const isFirstInTimeline = lightboxIndex === 0 && activeBurstIdx === 0;
+    const isLastInTimeline = (lightboxIndex === lightboxItems.length - 1 || lightboxItems.length === 0) && activeBurstIdx === total - 1;
+    elBtnBurstPrev.style.visibility = isFirstInTimeline ? "hidden" : "visible";
+    elBtnBurstNext.style.visibility = isLastInTimeline ? "hidden" : "visible";
+  }
+
+  // Header texts
+  elBurstInspectorTitle.textContent = `Visionneuse de Rafale (${total} photos)`;
+  elBurstInspectorSubtitle.textContent = `Du cliché 1 à ${total} — ${currentBurstItem.date}`;
+
+  // Mode toggles visuals
+  elBtnBurstViewSolo.classList.toggle('active', burstViewMode === 'solo');
+  elBtnBurstViewSplit.classList.toggle('active', burstViewMode === 'split');
 
   // Active item meta
   const isSelected = activeItem.type === 'stack' ? selectedFiles.has(activeItem.jpgFile.path) : selectedFiles.has(activeItem.files[0].path);
@@ -1211,7 +1200,8 @@ function renderBurstInspector() {
     tile.querySelector('.filmstrip-check').addEventListener('change', (e) => {
       e.stopPropagation();
       toggleItemSelection(item);
-      renderBurstInspector();
+      updateBurstInspectorUI();
+      updateBurstCardVisuals(currentBurstItem);
     });
 
     elBurstFilmstrip.appendChild(tile);
@@ -1451,6 +1441,33 @@ function toggleLightboxFavorite() {
   // refreshIcons(); // Removed to fix click lag
 }
 
+function updateLightboxMetadata(item) {
+  if (!item) return;
+  elLightboxFilename.textContent = item.name;
+
+  let displaySize = item.size;
+  let activeExtensions = item.files ? item.files.map(f => f.name.split('.').pop().toUpperCase()).join("+") : '';
+
+  if (item.type === 'stack') {
+    elLightboxStackControl.classList.remove("hidden");
+    const baseKey = item.jpgFile.name.substring(0, item.jpgFile.name.lastIndexOf('.')).toLowerCase();
+    const mode = stackModes[baseKey] || 'both';
+
+    elLightboxStackControl.querySelectorAll('.mode-opt').forEach(opt => {
+      opt.classList.toggle("active", opt.dataset.mode === mode);
+    });
+
+    if (mode === 'jpg') {
+      displaySize = item.jpgFile.size;
+      activeExtensions = 'JPG';
+    }
+  } else {
+    elLightboxStackControl.classList.add("hidden");
+  }
+
+  elLightboxDetails.textContent = `${activeExtensions} — ${formatBytes(displaySize)} — ${item.date}`;
+}
+
 function toggleLightboxStackMode() {
   const item = lightboxItems[lightboxIndex];
   if (!item || item.type !== 'stack') return;
@@ -1460,7 +1477,8 @@ function toggleLightboxStackMode() {
   const newMode = currentMode === 'both' ? 'jpg' : 'both';
 
   setStackMode(baseKey, newMode);
-  openLightbox(lightboxIndex);
+  updateLightboxMetadata(item);
+  updateTimelineCardVisuals(item);
 }
 
 function toggleBurstActiveStackMode() {
@@ -1473,29 +1491,68 @@ function toggleBurstActiveStackMode() {
   const newMode = currentMode === 'both' ? 'jpg' : 'both';
 
   setStackMode(baseKey, newMode);
-  renderBurstInspector();
+  updateBurstInspectorUI();
+  updateBurstCardVisuals(currentBurstItem);
+}
+
+function updateBurstCardVisuals(burstItem) {
+  if (!burstItem || !burstItem.items || !burstItem.items.length) return;
+  const coverItem = burstItem.items[burstItem.coverIndex !== undefined ? burstItem.coverIndex : burstItem.items.length - 1];
+  const coverPath = coverItem.type === 'stack' ? coverItem.jpgFile.path : coverItem.files[0].path;
+  const card = document.querySelector(`.file-card.card-burst[data-path="${coverPath}"]`);
+  if (!card) return;
+
+  const info = getBurstSelectionInfo(burstItem);
+  const isStarred = burstItem.items.some(item =>
+    item.type === 'stack' ? favoriteFiles.has(item.jpgFile.path) : favoriteFiles.has(item.files[0].path)
+  );
+
+  card.classList.toggle('selected', !info.isNone);
+  const cb = card.querySelector('.item-checkbox');
+  if (cb) {
+    cb.checked = info.isAll;
+    cb.indeterminate = info.isPartial;
+  }
+  const labelSmall = card.querySelector('.file-name small');
+  if (labelSmall) {
+    labelSmall.textContent = `(${info.selectedCount}/${info.totalCount} sél.)`;
+  }
+  const starBtn = card.querySelector('.btn-star');
+  if (starBtn) {
+    starBtn.classList.toggle('starred', isStarred);
+  }
+
+  const dayBlock = card.closest('.day-block');
+  if (dayBlock) updateDayHeaderSelectionState(dayBlock);
 }
 
 function updateTimelineCardVisuals(item) {
-  const itemKey = item.type === 'stack' ? item.jpgFile.path : item.files[0].path;
-  const cardEl = document.querySelector(`.file-card[data-path="${itemKey}"]`);
-  if (cardEl) {
-    const isSelected = item.type === 'stack'
-      ? selectedFiles.has(item.jpgFile.path)
-      : selectedFiles.has(item.files[0].path);
-    const isStarred = item.type === 'stack'
-      ? favoriteFiles.has(item.jpgFile.path)
-      : favoriteFiles.has(item.files[0].path);
+  if (!item) return;
+  const itemKey = item.type === 'stack' ? item.jpgFile.path : (item.files && item.files.length > 0 ? item.files[0].path : null);
+  if (itemKey) {
+    const cardEl = document.querySelector(`.file-card[data-path="${itemKey}"]`);
+    if (cardEl) {
+      const isSelected = item.type === 'stack'
+        ? selectedFiles.has(item.jpgFile.path)
+        : selectedFiles.has(item.files[0].path);
+      const isStarred = item.type === 'stack'
+        ? favoriteFiles.has(item.jpgFile.path)
+        : favoriteFiles.has(item.files[0].path);
 
-    cardEl.classList.toggle('selected', isSelected);
-    const cb = cardEl.querySelector('.item-checkbox');
-    if (cb) cb.checked = isSelected;
+      cardEl.classList.toggle('selected', isSelected);
+      const cb = cardEl.querySelector('.item-checkbox');
+      if (cb) cb.checked = isSelected;
 
-    const starBtn = cardEl.querySelector('.btn-star');
-    if (starBtn) starBtn.classList.toggle('starred', isStarred);
+      const starBtn = cardEl.querySelector('.btn-star');
+      if (starBtn) starBtn.classList.toggle('starred', isStarred);
 
-    const dayBlock = cardEl.closest('.day-block');
-    if (dayBlock) updateDayHeaderSelectionState(dayBlock);
+      const dayBlock = cardEl.closest('.day-block');
+      if (dayBlock) updateDayHeaderSelectionState(dayBlock);
+    }
+  }
+
+  if (currentBurstItem) {
+    updateBurstCardVisuals(currentBurstItem);
   }
 }
 
@@ -1666,7 +1723,8 @@ window.addEventListener("DOMContentLoaded", async () => {
     if (item && item.type === 'stack') {
       const baseKey = item.jpgFile.name.substring(0, item.jpgFile.name.lastIndexOf('.')).toLowerCase();
       setStackMode(baseKey, mode);
-      elLightboxStackControl.querySelectorAll('.mode-opt').forEach(o => o.classList.toggle("active", o.dataset.mode === mode));
+      updateLightboxMetadata(item);
+      updateTimelineCardVisuals(item);
     }
   });
 
@@ -1711,26 +1769,29 @@ window.addEventListener("DOMContentLoaded", async () => {
     if (!currentBurstItem) return;
     const activeItem = currentBurstItem.items[activeBurstIdx];
     toggleItemSelection(activeItem);
-    renderBurstInspector();
+    updateBurstInspectorUI();
+    updateBurstCardVisuals(currentBurstItem);
   });
 
   elBtnBurstActiveStar.addEventListener("click", () => {
     if (!currentBurstItem) return;
     const activeItem = currentBurstItem.items[activeBurstIdx];
     toggleItemFavorite(activeItem);
-    renderBurstInspector();
+    updateBurstInspectorUI();
+    updateBurstCardVisuals(currentBurstItem);
   });
 
   elBurstActiveStackControl.addEventListener("click", (e) => {
     if (!currentBurstItem) return;
     const activeItem = currentBurstItem.items[activeBurstIdx];
     if (activeItem.type !== "stack") return;
-    
+
     if (e.target.classList.contains('mode-opt')) {
       const mode = e.target.dataset.mode;
       const baseKey = activeItem.baseKey || activeItem.jpgFile.name.substring(0, activeItem.jpgFile.name.lastIndexOf('.')).toLowerCase();
       setStackMode(baseKey, mode);
-      renderBurstInspector();
+      updateBurstInspectorUI();
+      updateBurstCardVisuals(currentBurstItem);
     }
   });
 
@@ -1739,7 +1800,8 @@ window.addEventListener("DOMContentLoaded", async () => {
     const lastItem = currentBurstItem.items[currentBurstItem.coverIndex];
     currentBurstItem.items.forEach(it => deselectItem(it));
     selectItem(lastItem);
-    renderBurstInspector();
+    updateBurstInspectorUI();
+    updateBurstCardVisuals(currentBurstItem);
     updateSummary();
   });
 
@@ -1750,21 +1812,24 @@ window.addEventListener("DOMContentLoaded", async () => {
       if (isStarred) selectItem(it);
       else deselectItem(it);
     });
-    renderBurstInspector();
+    updateBurstInspectorUI();
+    updateBurstCardVisuals(currentBurstItem);
     updateSummary();
   });
 
   elBtnBurstSelectAll.addEventListener("click", () => {
     if (!currentBurstItem) return;
     currentBurstItem.items.forEach(it => selectItem(it));
-    renderBurstInspector();
+    updateBurstInspectorUI();
+    updateBurstCardVisuals(currentBurstItem);
     updateSummary();
   });
 
   elBtnBurstDeselectAll.addEventListener("click", () => {
     if (!currentBurstItem) return;
     currentBurstItem.items.forEach(it => deselectItem(it));
-    renderBurstInspector();
+    updateBurstInspectorUI();
+    updateBurstCardVisuals(currentBurstItem);
     updateSummary();
   });
 
@@ -1799,13 +1864,15 @@ window.addEventListener("DOMContentLoaded", async () => {
         if (currentBurstItem) {
           const activeItem = currentBurstItem.items[activeBurstIdx];
           toggleItemSelection(activeItem);
-          renderBurstInspector();
+          updateBurstInspectorUI();
+          updateBurstCardVisuals(currentBurstItem);
         }
       } else if (e.key.toLowerCase() === "f") {
         if (currentBurstItem) {
           const activeItem = currentBurstItem.items[activeBurstIdx];
           toggleItemFavorite(activeItem);
-          renderBurstInspector();
+          updateBurstInspectorUI();
+          updateBurstCardVisuals(currentBurstItem);
         }
       } else if (e.key.toLowerCase() === "r" || e.key.toLowerCase() === "m") {
         e.preventDefault();

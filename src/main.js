@@ -152,6 +152,7 @@ function groupDayItems(files) {
           files: [rawFile, jpgFile],
           rawFile,
           jpgFile,
+          baseKey: bName.toLowerCase(),
           file_type: 'raw+jpg',
           size: rawFile.size + jpgFile.size,
           date: jpgFile.date,
@@ -1167,7 +1168,8 @@ function renderBurstInspector() {
 
   if (activeItem.type === "stack") {
     elBurstActiveStackControl.classList.remove("hidden");
-    const smode = stackModes[activeItem.baseKey] || "both";
+    const baseKey = activeItem.baseKey || activeItem.jpgFile.name.substring(0, activeItem.jpgFile.name.lastIndexOf('.')).toLowerCase();
+    const smode = stackModes[baseKey] || "both";
     elBurstActiveStackControl.querySelectorAll('.mode-opt').forEach(opt => {
       opt.classList.toggle('active', opt.dataset.mode === smode);
     });
@@ -1461,6 +1463,19 @@ function toggleLightboxStackMode() {
   openLightbox(lightboxIndex);
 }
 
+function toggleBurstActiveStackMode() {
+  if (!currentBurstItem) return;
+  const activeItem = currentBurstItem.items[activeBurstIdx];
+  if (!activeItem || activeItem.type !== 'stack') return;
+
+  const baseKey = activeItem.baseKey || activeItem.jpgFile.name.substring(0, activeItem.jpgFile.name.lastIndexOf('.')).toLowerCase();
+  const currentMode = stackModes[baseKey] || 'both';
+  const newMode = currentMode === 'both' ? 'jpg' : 'both';
+
+  setStackMode(baseKey, newMode);
+  renderBurstInspector();
+}
+
 function updateTimelineCardVisuals(item) {
   const itemKey = item.type === 'stack' ? item.jpgFile.path : item.files[0].path;
   const cardEl = document.querySelector(`.file-card[data-path="${itemKey}"]`);
@@ -1713,12 +1728,8 @@ window.addEventListener("DOMContentLoaded", async () => {
     
     if (e.target.classList.contains('mode-opt')) {
       const mode = e.target.dataset.mode;
-      stackModes[activeItem.baseKey] = mode;
-      
-      const isCurrentlySelected = selectedFiles.has(activeItem.jpgFile.path) || (activeItem.rawFile && selectedFiles.has(activeItem.rawFile.path));
-      if (isCurrentlySelected) {
-        selectItem(activeItem);
-      }
+      const baseKey = activeItem.baseKey || activeItem.jpgFile.name.substring(0, activeItem.jpgFile.name.lastIndexOf('.')).toLowerCase();
+      setStackMode(baseKey, mode);
       renderBurstInspector();
     }
   });
@@ -1796,6 +1807,10 @@ window.addEventListener("DOMContentLoaded", async () => {
           toggleItemFavorite(activeItem);
           renderBurstInspector();
         }
+      } else if (e.key.toLowerCase() === "r" || e.key.toLowerCase() === "m") {
+        e.preventDefault();
+        if (e.repeat) return;
+        toggleBurstActiveStackMode();
       }
       return;
     }

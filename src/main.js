@@ -1021,6 +1021,7 @@ function renderBurstInspector() {
 function renderBurstInspectorCanvas() {
   if (!currentBurstItem || !currentBurstItem.items.length) return;
 
+  const total = currentBurstItem.items.length;
   const activeItem = currentBurstItem.items[activeBurstIdx];
   const coverItem = currentBurstItem.items[currentBurstItem.coverIndex];
 
@@ -1119,7 +1120,9 @@ function renderBurstInspectorCanvas() {
         }
     }).catch(console.error);
 
-    elBurstSplitActiveNum.textContent = `${activeBurstIdx + 1}/${total}`;
+    if (elBurstSplitActiveNum) {
+      elBurstSplitActiveNum.textContent = `${activeBurstIdx + 1}/${total}`;
+    }
   }
 }
 

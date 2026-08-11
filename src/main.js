@@ -84,6 +84,10 @@ let currentLightboxLoadId = 0;
 let currentBurstSoloLoadId = 0;
 let currentBurstSplitActiveLoadId = 0;
 let currentBurstSplitRefLoadId = 0;
+let lightboxHdTimeout = null;
+let burstSoloHdTimeout = null;
+let burstSplitActiveHdTimeout = null;
+let burstSplitRefHdTimeout = null;
 
 // Burst Inspector Elements
 let elModalBurstInspector, elBurstInspectorTitle, elBurstInspectorSubtitle;
@@ -905,6 +909,11 @@ function openLightbox(index, direction = 0) {
     return;
   }
 
+  if (lightboxHdTimeout) {
+    clearTimeout(lightboxHdTimeout);
+    lightboxHdTimeout = null;
+  }
+
   elLightboxImg.classList.add("hidden");
   elLightboxVideo.classList.add("hidden");
   elLightboxVideo.pause();
@@ -920,18 +929,21 @@ function openLightbox(index, direction = 0) {
     if (elLightboxImg.resetZoom) elLightboxImg.resetZoom();
     elLightboxImg.src = item.thumbnail_url;
 
-    // Chargement progressif HD en arrière-plan
-    const hdUrl = `${item.thumbnail_url}?full=true`;
-    const hdImg = new Image();
-    hdImg.onload = () => {
-      if (currentLightboxLoadId === loadId) {
-        elLightboxImg.src = hdUrl;
-      }
-    };
-    hdImg.onerror = () => {
-      console.warn("Maintien du thumbnail suite échec HD pour :", item.name);
-    };
-    hdImg.src = hdUrl;
+    // Chargement progressif HD différé (150ms) pour une navigation rapide 60fps sans lag
+    lightboxHdTimeout = setTimeout(() => {
+      if (currentLightboxLoadId !== loadId) return;
+      const hdUrl = `${item.thumbnail_url}?full=true`;
+      const hdImg = new Image();
+      hdImg.onload = () => {
+        if (currentLightboxLoadId === loadId) {
+          elLightboxImg.src = hdUrl;
+        }
+      };
+      hdImg.onerror = () => {
+        console.warn("Maintien du thumbnail suite échec HD pour :", item.name);
+      };
+      hdImg.src = hdUrl;
+    }, 150);
   }
 
   updateLightboxMetadata(item);
@@ -947,6 +959,10 @@ function openLightbox(index, direction = 0) {
 
 function closeLightbox() {
   currentLightboxLoadId++;
+  if (lightboxHdTimeout) {
+    clearTimeout(lightboxHdTimeout);
+    lightboxHdTimeout = null;
+  }
   elModalLightbox.classList.add("hidden");
   elLightboxImg.src = "";
   elLightboxVideo.pause();
@@ -985,6 +1001,9 @@ function closeBurstInspector() {
   currentBurstSoloLoadId++;
   currentBurstSplitActiveLoadId++;
   currentBurstSplitRefLoadId++;
+  if (burstSoloHdTimeout) { clearTimeout(burstSoloHdTimeout); burstSoloHdTimeout = null; }
+  if (burstSplitActiveHdTimeout) { clearTimeout(burstSplitActiveHdTimeout); burstSplitActiveHdTimeout = null; }
+  if (burstSplitRefHdTimeout) { clearTimeout(burstSplitRefHdTimeout); burstSplitRefHdTimeout = null; }
   elModalBurstInspector.classList.add("hidden");
   currentBurstItem = null;
   renderTimeline();
@@ -999,6 +1018,10 @@ function renderBurstInspector() {
 function renderBurstInspectorCanvas() {
   if (!currentBurstItem || !currentBurstItem.items.length) return;
 
+  if (burstSoloHdTimeout) { clearTimeout(burstSoloHdTimeout); burstSoloHdTimeout = null; }
+  if (burstSplitActiveHdTimeout) { clearTimeout(burstSplitActiveHdTimeout); burstSplitActiveHdTimeout = null; }
+  if (burstSplitRefHdTimeout) { clearTimeout(burstSplitRefHdTimeout); burstSplitRefHdTimeout = null; }
+
   const total = currentBurstItem.items.length;
   const activeItem = currentBurstItem.items[activeBurstIdx];
   const coverItem = currentBurstItem.items[currentBurstItem.coverIndex];
@@ -1012,14 +1035,17 @@ function renderBurstInspectorCanvas() {
     if (elBurstSoloImg.resetZoom) elBurstSoloImg.resetZoom();
     elBurstSoloImg.src = activeItem.thumbnail_url;
 
-    const hdUrl = `${activeItem.thumbnail_url}?full=true`;
-    const hdImg = new Image();
-    hdImg.onload = () => {
-      if (currentBurstSoloLoadId === loadId && burstViewMode === 'solo' && currentBurstItem) {
-        elBurstSoloImg.src = hdUrl;
-      }
-    };
-    hdImg.src = hdUrl;
+    burstSoloHdTimeout = setTimeout(() => {
+      if (currentBurstSoloLoadId !== loadId || burstViewMode !== 'solo' || !currentBurstItem) return;
+      const hdUrl = `${activeItem.thumbnail_url}?full=true`;
+      const hdImg = new Image();
+      hdImg.onload = () => {
+        if (currentBurstSoloLoadId === loadId && burstViewMode === 'solo' && currentBurstItem) {
+          elBurstSoloImg.src = hdUrl;
+        }
+      };
+      hdImg.src = hdUrl;
+    }, 150);
 
   } else {
     elBurstStageSolo.classList.add('hidden');
@@ -1034,23 +1060,29 @@ function renderBurstInspectorCanvas() {
     elBurstSplitImgActive.src = activeItem.thumbnail_url;
     elBurstSplitImgRef.src = coverItem.thumbnail_url;
 
-    const hdActiveUrl = `${activeItem.thumbnail_url}?full=true`;
-    const hdActiveImg = new Image();
-    hdActiveImg.onload = () => {
-      if (currentBurstSplitActiveLoadId === loadActiveId && burstViewMode === 'split' && currentBurstItem) {
-        elBurstSplitImgActive.src = hdActiveUrl;
-      }
-    };
-    hdActiveImg.src = hdActiveUrl;
+    burstSplitActiveHdTimeout = setTimeout(() => {
+      if (currentBurstSplitActiveLoadId !== loadActiveId || burstViewMode !== 'split' || !currentBurstItem) return;
+      const hdActiveUrl = `${activeItem.thumbnail_url}?full=true`;
+      const hdActiveImg = new Image();
+      hdActiveImg.onload = () => {
+        if (currentBurstSplitActiveLoadId === loadActiveId && burstViewMode === 'split' && currentBurstItem) {
+          elBurstSplitImgActive.src = hdActiveUrl;
+        }
+      };
+      hdActiveImg.src = hdActiveUrl;
+    }, 150);
 
-    const hdRefUrl = `${coverItem.thumbnail_url}?full=true`;
-    const hdRefImg = new Image();
-    hdRefImg.onload = () => {
-      if (currentBurstSplitRefLoadId === loadRefId && burstViewMode === 'split' && currentBurstItem) {
-        elBurstSplitImgRef.src = hdRefUrl;
-      }
-    };
-    hdRefImg.src = hdRefUrl;
+    burstSplitRefHdTimeout = setTimeout(() => {
+      if (currentBurstSplitRefLoadId !== loadRefId || burstViewMode !== 'split' || !currentBurstItem) return;
+      const hdRefUrl = `${coverItem.thumbnail_url}?full=true`;
+      const hdRefImg = new Image();
+      hdRefImg.onload = () => {
+        if (currentBurstSplitRefLoadId === loadRefId && burstViewMode === 'split' && currentBurstItem) {
+          elBurstSplitImgRef.src = hdRefUrl;
+        }
+      };
+      hdRefImg.src = hdRefUrl;
+    }, 150);
 
     if (elBurstSplitActiveNum) {
       elBurstSplitActiveNum.textContent = `${activeBurstIdx + 1}/${total}`;

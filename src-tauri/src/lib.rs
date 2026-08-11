@@ -613,16 +613,27 @@ pub fn run() {
                 }
             }
 
+            let is_raw = ext == "arw" || ext == "nef" || ext == "cr2" || ext == "dng" || ext == "cr3" || ext == "raf" || ext == "orf" || ext == "rw2" || ext == "pef";
+
             let bytes = match file_data {
                 Some(data) => data,
-                None => match fs::read(&final_path) {
-                    Ok(data) => data,
-                    Err(e) => {
-                        eprintln!("Failed to read asset path {}: {:?}", final_path, e);
+                None => {
+                    if is_raw {
+                        eprintln!("Aucun aperçu JPEG trouvé dans le fichier RAW : {}", final_path);
                         return tauri::http::Response::builder()
                             .status(404)
                             .body(Vec::new())
                             .unwrap();
+                    }
+                    match fs::read(&final_path) {
+                        Ok(data) => data,
+                        Err(e) => {
+                            eprintln!("Failed to read asset path {}: {:?}", final_path, e);
+                            return tauri::http::Response::builder()
+                                .status(404)
+                                .body(Vec::new())
+                                .unwrap();
+                        }
                     }
                 }
             };

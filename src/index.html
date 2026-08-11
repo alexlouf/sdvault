@@ -162,7 +162,7 @@
         <button id="btn-lightbox-prev" class="lightbox-nav-btn prev-btn" title="Précédent (←)"><i data-lucide="chevron-left"></i></button>
         
         <div class="lightbox-content">
-          <canvas id="lightbox-img" class="lightbox-image"></canvas>
+          <img id="lightbox-img" class="lightbox-image" src="" alt="" />
           <video id="lightbox-video" class="lightbox-video hidden" controls autoplay src=""></video>
           <div class="lightbox-meta">
             <div class="meta-header-row">
@@ -212,18 +212,18 @@
           <div class="burst-inspector-body">
             <!-- Solo Stage -->
             <div id="burst-stage-solo" class="burst-stage">
-              <canvas id="burst-solo-img" class="burst-stage-img"></canvas>
+              <img id="burst-solo-img" class="burst-stage-img" src="" alt="" />
             </div>
 
             <!-- Split Stage (Side-by-side comparison) -->
             <div id="burst-stage-split" class="burst-stage split-stage hidden">
               <div class="split-pane">
                 <span class="pane-badge">Photo active (<span id="burst-split-active-num">1</span>)</span>
-                <canvas id="burst-split-img-active" class="burst-stage-img"></canvas>
+                <img id="burst-split-img-active" class="burst-stage-img" src="" alt="" />
               </div>
               <div class="split-pane">
                 <span class="pane-badge badge-cover">Photo de référence (Dernière)</span>
-                <canvas id="burst-split-img-ref" class="burst-stage-img"></canvas>
+                <img id="burst-split-img-ref" class="burst-stage-img" src="" alt="" />
               </div>
             </div>
           </div>

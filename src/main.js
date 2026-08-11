@@ -915,45 +915,23 @@ function openLightbox(index, direction = 0) {
     elLightboxVideo.classList.remove("hidden");
   } else if (item.thumbnail_url) {
     const loadId = ++currentLightboxLoadId;
-    let hdLoaded = false;
 
-    // Initialize Canvas Context
-    const ctx = elLightboxImg.getContext('2d');
-    
-    // Clear canvas before drawing
-    ctx.clearRect(0, 0, elLightboxImg.width, elLightboxImg.height);
     elLightboxImg.classList.remove("hidden");
     if (elLightboxImg.resetZoom) elLightboxImg.resetZoom();
+    elLightboxImg.src = item.thumbnail_url;
 
-    // 1. Affiche l'image légère (thumbnail) instantanément pour la réactivité
-    const thumb = new Image();
-    thumb.onload = () => {
-        if (currentLightboxLoadId === loadId && !hdLoaded) { 
-            elLightboxImg.width = thumb.width;
-            elLightboxImg.height = thumb.height;
-            ctx.drawImage(thumb, 0, 0);
-        }
-    };
-    thumb.onerror = () => {
-        if (currentLightboxLoadId === loadId && !hdLoaded) {
-            console.warn("Échec du chargement du thumbnail pour :", item.name);
-        }
-    };
-    thumb.src = item.thumbnail_url;
-
-    // 2. Décodage HD hors thread via Web Worker
+    // Chargement progressif HD en arrière-plan
     const hdUrl = `${item.thumbnail_url}?full=true`;
-    decodeImageOffThread(hdUrl).then(bitmap => {
+    const hdImg = new Image();
+    hdImg.onload = () => {
       if (currentLightboxLoadId === loadId) {
-        hdLoaded = true;
-        elLightboxImg.width = bitmap.width;
-        elLightboxImg.height = bitmap.height;
-        ctx.drawImage(bitmap, 0, 0);
-        bitmap.close();
-      } else {
-        bitmap.close();
+        elLightboxImg.src = hdUrl;
       }
-    }).catch(e => console.error("Erreur décodage HD Worker:", e));
+    };
+    hdImg.onerror = () => {
+      console.warn("Maintien du thumbnail suite échec HD pour :", item.name);
+    };
+    hdImg.src = hdUrl;
   }
 
   updateLightboxMetadata(item);
@@ -1031,94 +1009,48 @@ function renderBurstInspectorCanvas() {
     elBurstStageSplit.classList.add('hidden');
     
     const loadId = ++currentBurstSoloLoadId;
-    let hdLoaded = false;
-
-    const ctx = elBurstSoloImg.getContext('2d');
-    ctx.clearRect(0, 0, elBurstSoloImg.width, elBurstSoloImg.height);
     if (elBurstSoloImg.resetZoom) elBurstSoloImg.resetZoom();
+    elBurstSoloImg.src = activeItem.thumbnail_url;
 
-    const thumb = new Image();
-    thumb.onload = () => {
-        if (currentBurstSoloLoadId === loadId && !hdLoaded) {
-            elBurstSoloImg.width = thumb.width;
-            elBurstSoloImg.height = thumb.height;
-            ctx.drawImage(thumb, 0, 0);
-        }
+    const hdUrl = `${activeItem.thumbnail_url}?full=true`;
+    const hdImg = new Image();
+    hdImg.onload = () => {
+      if (currentBurstSoloLoadId === loadId && burstViewMode === 'solo' && currentBurstItem) {
+        elBurstSoloImg.src = hdUrl;
+      }
     };
-    thumb.src = activeItem.thumbnail_url;
-
-    decodeImageOffThread(`${activeItem.thumbnail_url}?full=true`).then(bitmap => {
-        if (currentBurstSoloLoadId === loadId && burstViewMode === 'solo' && currentBurstItem) {
-            hdLoaded = true;
-            elBurstSoloImg.width = bitmap.width;
-            elBurstSoloImg.height = bitmap.height;
-            ctx.drawImage(bitmap, 0, 0);
-            bitmap.close();
-        } else {
-            bitmap.close();
-        }
-    }).catch(console.error);
+    hdImg.src = hdUrl;
 
   } else {
     elBurstStageSolo.classList.add('hidden');
     elBurstStageSplit.classList.remove('hidden');
     
     const loadActiveId = ++currentBurstSplitActiveLoadId;
-    let hdActiveLoaded = false;
     const loadRefId = ++currentBurstSplitRefLoadId;
-    let hdRefLoaded = false;
 
-    const ctxActive = elBurstSplitImgActive.getContext('2d');
-    const ctxRef = elBurstSplitImgRef.getContext('2d');
-    ctxActive.clearRect(0, 0, elBurstSplitImgActive.width, elBurstSplitImgActive.height);
-    ctxRef.clearRect(0, 0, elBurstSplitImgRef.width, elBurstSplitImgRef.height);
     if (elBurstSplitImgActive.resetZoom) elBurstSplitImgActive.resetZoom();
     if (elBurstSplitImgRef.resetZoom) elBurstSplitImgRef.resetZoom();
 
-    // Quick thumbnails
-    const thumbActive = new Image();
-    thumbActive.onload = () => {
-      if (currentBurstSplitActiveLoadId === loadActiveId && !hdActiveLoaded) {
-        elBurstSplitImgActive.width = thumbActive.width;
-        elBurstSplitImgActive.height = thumbActive.height;
-        ctxActive.drawImage(thumbActive, 0, 0);
+    elBurstSplitImgActive.src = activeItem.thumbnail_url;
+    elBurstSplitImgRef.src = coverItem.thumbnail_url;
+
+    const hdActiveUrl = `${activeItem.thumbnail_url}?full=true`;
+    const hdActiveImg = new Image();
+    hdActiveImg.onload = () => {
+      if (currentBurstSplitActiveLoadId === loadActiveId && burstViewMode === 'split' && currentBurstItem) {
+        elBurstSplitImgActive.src = hdActiveUrl;
       }
     };
-    thumbActive.src = activeItem.thumbnail_url;
+    hdActiveImg.src = hdActiveUrl;
 
-    const thumbRef = new Image();
-    thumbRef.onload = () => {
-      if (currentBurstSplitRefLoadId === loadRefId && !hdRefLoaded) {
-        elBurstSplitImgRef.width = thumbRef.width;
-        elBurstSplitImgRef.height = thumbRef.height;
-        ctxRef.drawImage(thumbRef, 0, 0);
+    const hdRefUrl = `${coverItem.thumbnail_url}?full=true`;
+    const hdRefImg = new Image();
+    hdRefImg.onload = () => {
+      if (currentBurstSplitRefLoadId === loadRefId && burstViewMode === 'split' && currentBurstItem) {
+        elBurstSplitImgRef.src = hdRefUrl;
       }
     };
-    thumbRef.src = coverItem.thumbnail_url;
-
-    decodeImageOffThread(`${activeItem.thumbnail_url}?full=true`).then(bitmap => {
-        if (currentBurstSplitActiveLoadId === loadActiveId && burstViewMode === 'split' && currentBurstItem) {
-            hdActiveLoaded = true;
-            elBurstSplitImgActive.width = bitmap.width;
-            elBurstSplitImgActive.height = bitmap.height;
-            ctxActive.drawImage(bitmap, 0, 0);
-            bitmap.close();
-        } else {
-            bitmap.close();
-        }
-    }).catch(console.error);
-    
-    decodeImageOffThread(`${coverItem.thumbnail_url}?full=true`).then(bitmap => {
-        if (currentBurstSplitRefLoadId === loadRefId && burstViewMode === 'split' && currentBurstItem) {
-            hdRefLoaded = true;
-            elBurstSplitImgRef.width = bitmap.width;
-            elBurstSplitImgRef.height = bitmap.height;
-            ctxRef.drawImage(bitmap, 0, 0);
-            bitmap.close();
-        } else {
-            bitmap.close();
-        }
-    }).catch(console.error);
+    hdRefImg.src = hdRefUrl;
 
     if (elBurstSplitActiveNum) {
       elBurstSplitActiveNum.textContent = `${activeBurstIdx + 1}/${total}`;

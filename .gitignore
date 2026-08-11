@@ -20,8 +20,7 @@ dist-ssr
 *.p12
 
 # Editor directories and files
-.vscode/*
-!.vscode/extensions.json
+.vscode/
 .idea
 .DS_Store
 *.suo
@@ -29,3 +28,7 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# PowerShell scripts
+*.ps1
+

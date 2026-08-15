@@ -373,6 +373,8 @@ input[type="text"]:focus {
   flex-direction: column;
   gap: 14px;
   padding: 20px;
+  content-visibility: auto;
+  contain-intrinsic-size: 0 350px;
 }
 
 .day-header {
@@ -476,7 +478,8 @@ input[type="text"]:focus {
   background: rgba(0, 0, 0, 0.3);
   border: 1px solid rgba(255, 255, 255, 0.06);
   cursor: pointer;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.2s ease, box-shadow 0.2s ease;
+  contain: layout paint;
 }
 
 .file-card:hover {

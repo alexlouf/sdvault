@@ -1,9 +1,18 @@
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 use std::collections::HashMap;
 use std::fs;
 use std::io::BufReader;
+use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
+use lru::LruCache;
 use tauri::{Emitter, Manager};
-use window_vibrancy::apply_mica;
+
+// In-memory bounded LRU cache for extracted thumbnails (capacity = 1000 items, ~50-100MB RAM)
+static THUMBNAIL_CACHE: std::sync::LazyLock<Mutex<LruCache<String, (Vec<u8>, String)>>> =
+    std::sync::LazyLock::new(|| Mutex::new(LruCache::new(NonZeroUsize::new(1000).unwrap())));
 
 #[derive(serde::Serialize, Clone, Debug)]
 struct ProgressPayload {
@@ -38,13 +47,11 @@ struct DayImportConfig {
 }
 
 // Find the offset of the TIFF header within a JPEG file by searching for "Exif\0\0"
-fn find_tiff_header_offset(path: &Path) -> Option<u64> {
-    use std::io::Read;
-    let mut file = fs::File::open(path).ok()?;
-    
-    // Read the first 128 KB which contains the EXIF APP1 segment
-    let mut buffer = vec![0u8; 131072];
-    let bytes_read = file.read(&mut buffer).ok()?;
+fn find_tiff_header_offset_from_reader<R: std::io::Read + std::io::Seek>(reader: &mut R) -> Option<u64> {
+    use std::io::SeekFrom;
+    reader.seek(SeekFrom::Start(0)).ok()?;
+    let mut buffer = [0u8; 65536];
+    let bytes_read = reader.read(&mut buffer).ok()?;
     
     // Search for "Exif\0\0" signature prefix
     let signature = [0x45, 0x78, 0x69, 0x66, 0x00, 0x00];
@@ -90,8 +97,28 @@ fn inject_exif_orientation_if_missing(buffer: Vec<u8>, orientation: u32) -> Vec<
 
 // Extract embedded JPEG preview from EXIF/TIFF containers (RAW or JPEG files)
 fn get_embedded_jpeg(path: &Path) -> Option<Vec<u8>> {
+    use std::io::{Seek, SeekFrom, Read};
     let file = fs::File::open(path).ok()?;
-    let mut reader = BufReader::new(file);
+    let mut reader = BufReader::with_capacity(65536, file);
+
+    // Detect if file is a JPEG to find TIFF header offset within APP1
+    let is_jpeg = {
+        let mut magic = [0u8; 2];
+        if reader.read_exact(&mut magic).is_ok() {
+            magic[0] == 0xFF && magic[1] == 0xD8
+        } else {
+            false
+        }
+    };
+    let _ = reader.seek(SeekFrom::Start(0));
+
+    let base_offset = if is_jpeg {
+        find_tiff_header_offset_from_reader(&mut reader).unwrap_or(0)
+    } else {
+        0
+    };
+    let _ = reader.seek(SeekFrom::Start(0));
+
     let exifreader = exif::Reader::new().read_from_container(&mut reader).ok();
 
     let orientation = exifreader.as_ref().and_then(|r| {
@@ -112,17 +139,28 @@ fn get_embedded_jpeg(path: &Path) -> Option<Vec<u8>> {
     let length = length_field.value.get_uint(0)? as usize;
     
     // Compute the absolute offset
-    // JPEGs wrap Exif in APP1; TIFF RAW files start directly with the TIFF header (offset 0)
-    let base_offset = find_tiff_header_offset(path).unwrap_or(0);
     let absolute_offset = base_offset + relative_offset;
     
-    use std::io::{Seek, SeekFrom, Read};
     let mut underlying_file = reader.into_inner();
     underlying_file.seek(SeekFrom::Start(absolute_offset)).ok()?;
     let mut buffer = vec![0u8; length];
     underlying_file.read_exact(&mut buffer).ok()?;
     
     Some(inject_exif_orientation_if_missing(buffer, orientation))
+}
+
+fn get_raw_orientation(path: &Path) -> u32 {
+    if let Ok(file) = fs::File::open(path) {
+        let mut reader = BufReader::with_capacity(32768, file);
+        if let Ok(exifreader) = exif::Reader::new().read_from_container(&mut reader) {
+            if let Some(field) = exifreader.get_field(exif::Tag::Orientation, exif::In::PRIMARY) {
+                if let Some(val) = field.value.get_uint(0) {
+                    return val;
+                }
+            }
+        }
+    }
+    1
 }
 
 // Find and extract the embedded JPEG preview from Canon CR3 files (ISOBMFF format)
@@ -156,20 +194,6 @@ fn get_cr3_thumbnail(path: &Path) -> Option<Vec<u8>> {
     Some(inject_exif_orientation_if_missing(raw_jpeg, orientation))
 }
 
-fn get_raw_orientation(path: &Path) -> u32 {
-    if let Ok(file) = fs::File::open(path) {
-        let mut reader = BufReader::new(file);
-        if let Ok(exifreader) = exif::Reader::new().read_from_container(&mut reader) {
-            if let Some(field) = exifreader.get_field(exif::Tag::Orientation, exif::In::PRIMARY) {
-                if let Some(val) = field.value.get_uint(0) {
-                    return val;
-                }
-            }
-        }
-    }
-    1
-}
-
 // Find and extract the embedded JPEG preview from Fujifilm RAF files
 fn get_raf_thumbnail(path: &Path) -> Option<Vec<u8>> {
     use std::io::Read;
@@ -195,11 +219,12 @@ fn get_raf_thumbnail(path: &Path) -> Option<Vec<u8>> {
     let orientation = get_raw_orientation(path);
     Some(inject_exif_orientation_if_missing(raw_jpeg, orientation))
 }
+
 // Extract capture date (YYYY-MM-DD) and UNIX timestamp in milliseconds (with EXIF SubSecTime precision)
 fn get_capture_info(path: &Path, file_type: &str, metadata: &fs::Metadata) -> (String, u64) {
     if file_type != "video" {
         if let Ok(file) = fs::File::open(path) {
-            let mut reader = BufReader::new(file);
+            let mut reader = BufReader::with_capacity(65536, file);
             if let Ok(exifreader) = exif::Reader::new().read_from_container(&mut reader) {
                 if let Some(field) = exifreader.get_field(exif::Tag::DateTimeOriginal, exif::In::PRIMARY) {
                     let val_str = field.display_value().to_string();
@@ -304,6 +329,7 @@ async fn scan_source(app: tauri::AppHandle, source_path: String) -> Result<HashM
 
     let total_files = file_paths.len();
     let progress_counter = AtomicUsize::new(0);
+    let last_emit = Mutex::new(std::time::Instant::now());
 
     // Process files in parallel to hide slow SD card I/O latencies
     let media_files: Vec<MediaFile> = file_paths
@@ -344,13 +370,18 @@ async fn scan_source(app: tauri::AppHandle, source_path: String) -> Result<HashM
                 url
             };
 
-            let current = progress_counter.fetch_add(1, Ordering::SeqCst) + 1;
-            if current % 5 == 0 || current == total_files {
-                let _ = app.emit("scan-progress", ProgressPayload {
-                    current,
-                    total: total_files,
-                    file_name: name.clone(),
-                });
+            let current = progress_counter.fetch_add(1, Ordering::Relaxed) + 1;
+            if current == total_files || current % 10 == 0 {
+                if let Ok(mut last) = last_emit.try_lock() {
+                    if last.elapsed() >= std::time::Duration::from_millis(50) || current == total_files {
+                        *last = std::time::Instant::now();
+                        let _ = app.emit("scan-progress", ProgressPayload {
+                            current,
+                            total: total_files,
+                            file_name: name.clone(),
+                        });
+                    }
+                }
             }
 
             Some(MediaFile {
@@ -381,16 +412,27 @@ fn get_app_version(app: tauri::AppHandle) -> String {
 
 #[tauri::command]
 async fn start_import(app: tauri::AppHandle, destination: String, days: Vec<DayImportConfig>, delete_source: bool) -> Result<(), String> {
+    use rayon::prelude::*;
+    use std::collections::HashSet;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
     let dest_dir = Path::new(&destination);
     if !dest_dir.exists() {
         fs::create_dir_all(dest_dir)
             .map_err(|e| format!("Impossible de créer le dossier de destination: {:?}", e))?;
     }
 
-    let total_files = days.iter().map(|d| d.files.len()).sum::<usize>();
-    let mut current = 0;
+    struct ImportTask {
+        source_path: PathBuf,
+        target_path: PathBuf,
+        favoris_path: Option<PathBuf>,
+        file_name: String,
+    }
 
-    for day in days {
+    let mut tasks = Vec::new();
+    let mut created_dirs = HashSet::new();
+
+    for day in &days {
         let folder_name = if day.suffix.trim().is_empty() {
             day.date.clone()
         } else {
@@ -403,14 +445,14 @@ async fn start_import(app: tauri::AppHandle, destination: String, days: Vec<DayI
         let video_dir = day_dir.join("video");
         let favoris_dir = day_dir.join("favoris");
 
-        for file in day.files {
-            let src_path = Path::new(&file.source_path);
+        for file in &day.files {
+            let src_path = PathBuf::from(&file.source_path);
             if !src_path.exists() {
                 continue;
             }
 
             let file_name = match src_path.file_name() {
-                Some(name) => name,
+                Some(name) => name.to_string_lossy().into_owned(),
                 None => continue,
             };
 
@@ -421,45 +463,93 @@ async fn start_import(app: tauri::AppHandle, destination: String, days: Vec<DayI
                 _ => continue, // skip unrecognized files
             };
 
-            // Ensure destination subdirectory (jpg, raw, video) exists on-demand
-            if !type_dir.exists() {
-                fs::create_dir_all(type_dir)
-                    .map_err(|e| format!("Erreur lors de la création du dossier {:?}: {:?}", type_dir, e))?;
+            // Ensure destination subdirectory (jpg, raw, video) exists on-demand once
+            if created_dirs.insert(type_dir.clone()) {
+                if !type_dir.exists() {
+                    fs::create_dir_all(type_dir)
+                        .map_err(|e| format!("Erreur lors de la création du dossier {:?}: {:?}", type_dir, e))?;
+                }
             }
 
-            let target_path = type_dir.join(file_name);
-
-            // Copy file physically
-            fs::copy(src_path, &target_path)
-                .map_err(|e| format!("Erreur lors de la copie de {:?} vers {:?}: {:?}", src_path, target_path, e))?;
-
-            // If it's a favorite, create favoris directory on-demand and create a hardlink
-            if file.is_favorite {
-                if !favoris_dir.exists() {
-                    fs::create_dir_all(&favoris_dir)
-                        .map_err(|e| format!("Erreur lors de la création du dossier favoris {:?}: {:?}", favoris_dir, e))?;
+            let favoris_path = if file.is_favorite {
+                if created_dirs.insert(favoris_dir.clone()) {
+                    if !favoris_dir.exists() {
+                        fs::create_dir_all(&favoris_dir)
+                            .map_err(|e| format!("Erreur lors de la création du dossier favoris {:?}: {:?}", favoris_dir, e))?;
+                    }
                 }
-                let fav_path = favoris_dir.join(file_name);
-                if let Err(_) = fs::hard_link(&target_path, &fav_path) {
-                     // Fallback to physical copy if hardlinking fails (e.g. cross-device)
-                     fs::copy(&target_path, &fav_path)
-                         .map_err(|e| format!("Erreur de copie de secours du favori vers {:?}: {:?}", fav_path, e))?;
+                Some(favoris_dir.join(&file_name))
+            } else {
+                None
+            };
+
+            tasks.push(ImportTask {
+                source_path: src_path,
+                target_path: type_dir.join(&file_name),
+                favoris_path,
+                file_name,
+            });
+        }
+    }
+
+    let total_files = tasks.len();
+    if total_files == 0 {
+        return Ok(());
+    }
+
+    let progress_counter = AtomicUsize::new(0);
+    let last_emit = Mutex::new(std::time::Instant::now());
+
+    // Create a dedicated 4-thread pool for balanced storage I/O throughput
+    let pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(4)
+        .build()
+        .map_err(|e| format!("Erreur initialisation thread pool: {:?}", e))?;
+
+    let copy_result: Result<(), String> = pool.install(|| {
+        tasks.into_par_iter().try_for_each(|task| {
+            // Physical file copy
+            fs::copy(&task.source_path, &task.target_path)
+                .map_err(|e| format!("Erreur lors de la copie de {:?} vers {:?}: {:?}", task.source_path, task.target_path, e))?;
+
+            // If it's a favorite, create a hardlink (or fallback to physical copy)
+            if let Some(ref fav_path) = task.favoris_path {
+                if let Err(_) = fs::hard_link(&task.target_path, fav_path) {
+                    let _ = fs::copy(&task.target_path, fav_path);
                 }
             }
 
             // If delete_source is true, remove the source file from SD Card
             if delete_source {
-                if let Err(e) = fs::remove_file(src_path) {
-                    eprintln!("Impossible de supprimer le fichier source original {:?}: {:?}", src_path, e);
+                if let Err(e) = fs::remove_file(&task.source_path) {
+                    eprintln!("Impossible de supprimer le fichier source original {:?}: {:?}", task.source_path, e);
                 }
             }
 
-            current += 1;
-            let _ = app.emit("import-progress", ProgressPayload {
-                current,
-                total: total_files,
-                file_name: file_name.to_string_lossy().into_owned(),
-            });
+            let current = progress_counter.fetch_add(1, Ordering::Relaxed) + 1;
+            if current == total_files || current % 5 == 0 {
+                if let Ok(mut last) = last_emit.try_lock() {
+                    if last.elapsed() >= std::time::Duration::from_millis(50) || current == total_files {
+                        *last = std::time::Instant::now();
+                        let _ = app.emit("import-progress", ProgressPayload {
+                            current,
+                            total: total_files,
+                            file_name: task.file_name,
+                        });
+                    }
+                }
+            }
+
+            Ok(())
+        })
+    });
+
+    copy_result?;
+
+    // Clear thumbnail cache if files were deleted/moved
+    if delete_source {
+        if let Ok(mut cache) = THUMBNAIL_CACHE.lock() {
+            cache.clear();
         }
     }
 
@@ -481,13 +571,13 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
-            if let Some(window) = app.get_webview_window("main") {
+            if let Some(_window) = app.get_webview_window("main") {
                 #[cfg(target_os = "windows")]
-                let _ = apply_mica(&window, None);
+                let _ = window_vibrancy::apply_mica(&_window, None);
                 
                 #[cfg(target_os = "macos")]
                 let _ = window_vibrancy::apply_vibrancy(
-                    &window,
+                    &_window,
                     window_vibrancy::NSVisualEffectMaterial::HudWindow,
                     None,
                     None,
@@ -587,15 +677,30 @@ pub fn run() {
                 }
             }
 
+            // Check in-memory LRU thumbnail cache first for ultra-fast instant responses
+            if !is_full && !is_video {
+                if let Ok(mut cache) = THUMBNAIL_CACHE.lock() {
+                    if let Some((cached_bytes, cached_mime)) = cache.get(&final_path) {
+                        return tauri::http::Response::builder()
+                            .header("Content-Type", cached_mime.as_str())
+                            .header("Cache-Control", "public, max-age=86400, immutable")
+                            .header("Access-Control-Allow-Origin", "*")
+                            .body(cached_bytes.clone())
+                            .unwrap();
+                    }
+                }
+            }
+
             let mut file_data = None;
             
             // Try to extract embedded JPEG preview for RAW/JPG files to drastically reduce SD card reads.
             // If full=true is requested, we bypass thumbnail extraction for native images to load the full file.
             let is_native_image = ext == "jpg" || ext == "jpeg" || ext == "webp";
+            let is_raw = ext == "arw" || ext == "nef" || ext == "cr2" || ext == "dng" || ext == "cr3" || ext == "raf" || ext == "orf" || ext == "rw2" || ext == "pef";
             let should_extract_thumbnail = if is_full && is_native_image {
                 false
             } else {
-                ext == "arw" || ext == "nef" || ext == "cr2" || ext == "dng" || ext == "cr3" || ext == "raf" || ext == "orf" || ext == "rw2" || ext == "pef" || is_native_image
+                is_raw || is_native_image
             };
 
             if should_extract_thumbnail {
@@ -608,12 +713,15 @@ pub fn run() {
                 };
 
                 if let Some(bytes) = thumb_bytes {
-                    file_data = Some(bytes);
                     mime = "image/jpeg".to_string();
+                    if !is_full {
+                        if let Ok(mut cache) = THUMBNAIL_CACHE.lock() {
+                            cache.put(final_path.clone(), (bytes.clone(), mime.clone()));
+                        }
+                    }
+                    file_data = Some(bytes);
                 }
             }
-
-            let is_raw = ext == "arw" || ext == "nef" || ext == "cr2" || ext == "dng" || ext == "cr3" || ext == "raf" || ext == "orf" || ext == "rw2" || ext == "pef";
 
             let bytes = match file_data {
                 Some(data) => data,
@@ -638,11 +746,15 @@ pub fn run() {
                 }
             };
             
-            tauri::http::Response::builder()
+            let mut res_builder = tauri::http::Response::builder()
                 .header("Content-Type", mime)
-                .header("Access-Control-Allow-Origin", "*")
-                .body(bytes)
-                .unwrap()
+                .header("Access-Control-Allow-Origin", "*");
+
+            if !is_full {
+                res_builder = res_builder.header("Cache-Control", "public, max-age=86400, immutable");
+            }
+
+            res_builder.body(bytes).unwrap()
         })
         .invoke_handler(tauri::generate_handler![scan_source, start_import, select_folder, get_app_version])
         .run(tauri::generate_context!())

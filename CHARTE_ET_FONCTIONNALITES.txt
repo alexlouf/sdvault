@@ -1,0 +1,412 @@
+================================================================================
+                    SD-VAULT - SPÉCIFICATIONS LEADER & CHARTE GRAPHIQUE
+================================================================================
+Document de référence exhaustif pour la création du site web vitrine & landing page
+Projet : SD-Vault (tri rapide RAW+JPEG, culling de rafales, archivage & déchargement SD)
+Date : 11 Août 2026
+Auteur : Équipe Antigravity / SD-Vault
+Statut : Fichier Officiel de Livraison (Racine du Projet)
+================================================================================
+
+TABLE DES MATIÈRES
+--------------------------------------------------------------------------------
+1. PRÉSENTATION DE L'APPLICATION & POSITIONNEMENT DE MARQUE
+2. CATALOGUE EXHAUSTIF DES FONCTIONNALITÉS (POUR LE SITE WEB)
+   2.1. Moteur de Scan High-Performance & Multithread (Rust / Rayon)
+   2.2. Appariement Intelligent RAW + JPEG (3D Stacking Engine)
+   2.3. Inspecteur & Trieur de Rafales (Burst Inspector & Smart Culling)
+   2.4. Système de Favoris à Zéro Espace Disque (0 MB Hardlinks)
+   2.5. Archivage Chronologique & Structuration Propre (Lazy Creation)
+   2.6. Visualiseur & Lecteur Médias Haute Résolution (Lightbox & Streaming 206)
+   2.7. Ergonomie, Raccourcis Clavier & UX Pro
+   2.8. Compatibilité Multi-Plateforme & Formats Universels
+3. CHARTE GRAPHIQUE COMPLÈTE & TOKENS DE DESIGN (DESIGN SYSTEM)
+   3.1. Identité Visuelle, Philosophie & Direction Artistique
+   3.2. Palette de Couleurs Officielle (Tokens Hex, HSL, RGBA)
+   3.3. Typographie, Échelle & Hiérarchie Visuelle
+   3.4. Spécifications du Système Glassmorphism
+   3.5. Guide des Composants Graphiques & UI Elements
+   3.6. Iconographie & Style Visuel des Symboles
+   3.7. Micro-Animations, Transitions & Effets Dynamiques
+4. ARCHITECTURE RECOMMANDÉE POUR LE SITE WEB VITRINE
+   4.1. Découpage des Sections du Site (Landing Page Wireframe)
+   4.2. Directives de Rédaction (Copywriting & Ton de Voix)
+   4.3. Recommandations Techniques Web & Performance SEO
+================================================================================
+
+
+================================================================================
+1. PRÉSENTATION DE L'APPLICATION & POSITIONNEMENT DE MARQUE
+================================================================================
+
+SD-Vault est une application de bureau moderne, ultra-rapide et ultra-sécurisée 
+conçue sur-mesure pour les photographes professionnels, vidéastes, créateurs de 
+contenu et passionnés.
+
+Problématique résolue :
+Après un shooting photo ou vidéo, le déchargement des cartes SD s'avère souvent 
+lent, désorganisé et consommateur d'espace stockage. Le tri (culling) des 
+milliers de photos RAW et des séries en rafale prend des heures avant de pouvoir 
+importer les fichiers dans un logiciel d'édition comme Lightroom ou Capture One.
+
+La solution SD-Vault :
+SD-Vault automatise le tri, le déchargement et l'organisation des médias issus 
+de cartes SD (Sony, Canon, Fuji, Nikon, Panasonic, Leica, etc.). Grâce à un 
+moteur natif en Rust et une interface sombre en Glassmorphism HSL, l'application 
+permet d'inspecter immédiatement les photos sans charger les lourds fichiers RAW 
+en mémoire, de gérer l'appariement RAW+JPEG, de trier les rafales en un clin 
+d'œil, et de marquer ses favoris sans occuper le moindre Mo supplémentaire.
+
+Promesse de marque :
+"Déchargement intelligent, tri rapide RAW+JPEG & archivage haute performance."
+
+
+================================================================================
+2. CATALOGUE EXHAUSTIF DES FONCTIONNALITÉS (POUR LE SITE WEB)
+================================================================================
+
+Cette section recense l'intégralité des fonctionnalités techniques et applicatives 
+de SD-Vault, prêtes à être converties en arguments marketing et fiches produit 
+sur le site web.
+
+2.1. MOTEUR DE SCAN HIGH-PERFORMANCE & MULTITHREAD (RUST / RAYON)
+--------------------------------------------------------------------------------
+- Scan Parallélisé Ultra-Rapide : Exploitation du multithreading natif via la 
+  crate Rust `rayon` pour balayer des milliers de fichiers sur carte SD en 
+  quelques secondes sans bloquer l'interface.
+- Parsing Direct des Vignettes Intégrées (Embedded JPEGs) : Extraction à la 
+  volée des aperçus JPEG contenus au sein des conteneurs RAW (Sony ARW, Canon 
+  CR3/CR2, Nikon NEF, Fuji RAF, DNG, Olympus ORF, Panasonic RW2, Pentax PEF) 
+  et en-têtes EXIF.
+- Économie Utile de RAM : Prévisualisation instantanée des clichés 45MP/61MP 
+  sans jamais charger le fichier complet en mémoire vive.
+- Protocole Réseau Personnalisé (`vault-asset://`) : Serveur de protocole natif 
+  Tauri contournant les limitations d'I/O pour servir les éléments visuels avec 
+  une latence quasi-nulle.
+- Filtrage Intelligent du Bruit : Exclusion automatique des fichiers système et 
+  métadonnées des constructeurs (`Thumbs.db`, `.DS_Store`, dossiers `/THMBNL/`, 
+  `/SONY/`, `/M4ROOT/`, etc.).
+
+2.2. APPARIEMENT INTELLIGENT RAW + JPEG (3D STACKING ENGINE)
+--------------------------------------------------------------------------------
+- Regroupement Automatique des Paires : Détection et fusion visuelle instantanée 
+  des clichés capturés simultanément en mode RAW + JPEG sous forme d'une seule 
+  carte virtuelle ("Stack").
+- Effet Visuel 3D Empilé : Rendu graphique en superposition de couches avec 
+  ombres d'empilement pour distinguer d'un coup d'œil les paires RAW+JPG des 
+  fichiers uniques.
+- Contrôle de Granularité Tri-Niveaux :
+  * Niveau Global : Bascule générale en un clic entre l'importation complète 
+    ("RAW+JPG") et l'importation allégée ("JPEG Seul").
+  * Niveau Journée : Commutateur dédié par bloc de date.
+  * Niveau Fichier : Sélecteur segmenté interactif (Pill Toggle `RAW+JPG` vs `JPG`) 
+    sur chaque carte et dans la Lightbox.
+- Gain d'Espace Disque : Possibilité d'archiver uniquement les JPEG pour les 
+  photos souvenirs ou de reportage, tout en conservant les RAW pour les photos 
+  d'art.
+
+2.3. INSPECTEUR & TRIEUR DE RAFALES (BURST INSPECTOR & SMART CULLING)
+--------------------------------------------------------------------------------
+- Détection Haute Précision sous la Seconde : Groupement automatique des séries 
+  de prises de vue en rafale en analysant le horodatage EXIF ultra-précis 
+  (`SubSecTimeOriginal` / `SubSecTime` à la milliseconde près).
+- Culling Intelligent par Défaut (Smart Selection) : Lors de la détection d'une 
+  rafale, SD-Vault sélectionne automatiquement la DERNIÈRE photo de la série 
+  (souvent la meilleure ou la plus aboutie) tout en laissant le reste décoché.
+- Inspecteur de Rafale Dédié (Burst Inspector Modal) :
+  * Filmstrip Horizontal (Bande de Film) : Navigation fluide dans la série avec 
+    indicateurs visuels de photo de couverture (`is-cover`).
+  * Mode Solo View : Inspection grand format photo par photo avec affichage 
+    des métadonnées précises (rang dans la rafale, taille, date, heure ms).
+  * Mode Côte-à-Côte (Split View / Split Stage) : Comparaison directe côte à 
+    côte de n'importe quel cliché de la rafale face à la photo de référence / 
+    photo de couverture.
+- Boutons d'Action Rapide de Rafale :
+  * "Garder la dernière" : Réinitialise le choix sur le dernier cliché.
+  * "Garder les favoris" : Conserve uniquement les clichés étoilés dans la rafale.
+  * "Tout sélectionner" / "Tout désélectionner" au sein de la rafale.
+
+2.4. SYSTÈME DE FAVORIS À ZÉRO ESPACE DISQUE (0 MB HARDLINKS)
+--------------------------------------------------------------------------------
+- Marquage Instantané : Bouton Étoile interactif ou touche clavier dédiée `F`.
+- Hardlinks Natifs OS (Liens Physiques) : Lors de l'importation, les favoris sont 
+  générés sous forme de liens matériels (`hard_link`) dans le sous-dossier `favoris/`.
+- Consommation Dédupliquée (0 Mo) : Les favoris font référence aux mêmes blocs 
+  physiques sur le disque dur. Ils n'occupent AUCUN Mo supplémentaire sur le 
+  stockage !
+- Fallback Sécurisé : En cas de transfert inter-disques empêchant les hardlinks, 
+  un repli automatique vers une copie physique garantit zéro perte de fichier.
+
+2.5. ARCHIVAGE CHRONOLOGIQUE & STRUCTURATION PROPRE (LAZY CREATION)
+--------------------------------------------------------------------------------
+- Structuration Automatique par Date : Organisation des répertoires d'archives 
+  selon la norme photographique `AAAA-MM-JJ - Suffixe` (ex: `2026-08-11 - Mariage_Sophie`).
+- Suffixe Personnalisable par Journée : Champ de saisie dynamique pour ajouter 
+  un nom de projet ou un lieu sur chaque bloc de date.
+- Création à la Demande (Lazy Directory Creation) : Les sous-dossiers (`jpg/`, 
+  `raw/`, `video/`, `favoris/`) ne sont créés sur le disque dur QUE s'ils 
+  contiennent au moins un fichier correspondant. Aucun dossier vide ne pollue 
+  votre arborescence !
+- Modes d'Importation Souples :
+  * Mode Copie (Copy) : Copie les médias vers la destination en préservant 
+    l'intégralité de la carte SD.
+  * Mode Déplacement (Move / Cut) : Transfère les médias puis supprime les 
+    fichiers sources de la carte SD pour libérer immédiatement l'espace.
+
+2.6. VISUALISEUR & LECTEUR MÉDIAS HAUTE RÉSOLUTION (LIGHTBOX & STREAMING 206)
+--------------------------------------------------------------------------------
+- Lightbox Immersive Plein Écran : Affichage grand format avec arrière-plan 
+  flouté pour apprécier le piqué, la netteté et la composition.
+- Lecteur Vidéo Intégré avec Streaming HTTP Partial (Range Requests) : 
+  Lecture fluide des fichiers vidéo volumineux (`.MP4`, `.MOV`, `.MKV`) via le 
+  support des en-têtes HTTP `Range: bytes` (Statut 206 Partial Content) par tranches 
+  de 4 Mo, sans chargement complet du fichier.
+- Zoom & Pan Interactifs : Inspection minutieuse des détails via le module `zoom.js`.
+- Barre d'Information & Action Intégrée dans la Lightbox : Changement de mode 
+  RAW+JPG, bascule favori et sélection sans fermer la vue plein écran.
+
+2.7. ERGONOMIE, RACCOURCIS CLAVIER & UX PRO
+--------------------------------------------------------------------------------
+- Ergonomie Zéro Friction : Conçue pour traiter des milliers d'images sans 
+  fatigue visuelle ni manipulations superflues.
+- Navigation Clavier Exhaustive :
+  * `Double-Clic` : Ouvrir la photo en plein écran (Lightbox) ou la rafale (Inspecteur).
+  * `←` / `→` : Naviguer vers la photo précédente / suivante.
+  * `Espace` ou `S` : Activer / Désactiver la sélection pour l'importation.
+  * `R` ou `M` : Basculer entre RAW+JPG et JPG Seul.
+  * `F` : Marquer / Démarquer des favoris (Étoile).
+  * `Échap` : Fermer la Lightbox ou l'Inspecteur de rafale.
+- Modal de Rapport Synthétique d'Importation : Récapitulatif visuel complet après 
+  importation (fichiers copiés, favoris isolés, espace disque économisé).
+
+2.8. COMPATIBILITÉ MULTI-PLATEFORME & FORMATS UNIVERSELS
+--------------------------------------------------------------------------------
+- Applications Natives multi-OS : Windows (`.msi`, `.exe`), macOS (`.dmg`, `.app`), 
+  Linux (`.AppImage`, `.deb`).
+- Intégration Transparence Système : Support de Windows Mica (`window_vibrancy`) 
+  et macOS HudWindow Vibrancy pour une fusion élégante avec l'OS.
+- Support Formats Photo : Sony (`.ARW`), Canon (`.CR2`, `.CR3`), Nikon (`.NEF`), 
+  Fuji (`.RAF`), Panasonic (`.RW2`), Olympus (`.ORF`), Pentax (`.PEF`), 
+  Adobe (`.DNG`), Standard (`.JPG`, `.JPEG`, `.WEBP`).
+- Support Formats Vidéo : `.MP4`, `.MOV`, `.AVI`, `.MKV`.
+
+
+================================================================================
+3. CHARTE GRAPHIQUE COMPLÈTE & TOKENS DE DESIGN (DESIGN SYSTEM)
+================================================================================
+
+Le site web vitrine doit être la vitrine exacte de l'application SD-Vault. 
+L'esthétique globale est de style **Dark Mode Glassmorphism HSL Premium**, 
+caractérisée par des fonds sombres profonds, de subtiles lueurs néon (glow), 
+des effets de transparence dépolie et des micro-animations ultra-fluides.
+
+3.1. IDENTITÉ VISUELLE, PHILOSOPHIE & DIRECTION ARTISTIQUE
+--------------------------------------------------------------------------------
+- Ambiance Générale : Studio photo sombre, high-tech, moderne, épuré et luxueux.
+- Adjectifs Clés : Ultra-rapide, Précis, Robuste, Transparent, Futuriste.
+- Contraste : Contraste élevé entre le fond sombre profond (`#0b0d13`) et les 
+  accents lumineux bleu électrique (`#3b82f6`) / violet néon (`#8b5cf6`).
+
+3.2. PALETTE DE COULEURS OFFICIELLE (TOKENS HEX, HSL, RGBA)
+--------------------------------------------------------------------------------
+
+A. Arrière-Plans & Surfaces Sombre (Backgrounds)
+- Primary App Solid    : `#0b0d13`  (HSL: 225°, 27%, 6%)
+- Primary App Gradient : `radial-gradient(circle at 50% 0%, #151926 0%, #0b0d13 100%)`
+- Surface Glass Card   : `rgba(255, 255, 255, 0.05)`
+- Surface Glass Hover  : `rgba(255, 255, 255, 0.08)`
+- Surface Input / Dark : `rgba(0, 0, 0, 0.25)`
+
+B. Couleurs d'Accentuation & Lueurs (Accents & Glows)
+- Accent Blue          : `#3b82f6`  (HSL: 217°, 91%, 60%)
+- Accent Blue Glow     : `rgba(59, 130, 246, 0.45)`
+- Accent Purple        : `#8b5cf6`  (HSL: 258°, 90%, 66%)
+- Accent Purple Glow   : `rgba(139, 92, 246, 0.45)`
+- Accent Gradient Main : `linear-gradient(135deg, #2563eb 0%, #7c3aed 100%)`
+- Accent Gradient Hover: `linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%)`
+- Text Logo Gradient   : `linear-gradient(to right, #ffffff 0%, #d8b4fe 100%)`
+
+C. Couleurs Sémantiques & Badges d'État
+- Badge JPG            : Fond `rgba(59, 130, 246, 0.25)` | Bordure `rgba(59, 130, 246, 0.4)` | Texte `#93c5fd`
+- Badge RAW            : Fond `rgba(139, 92, 246, 0.25)` | Bordure `rgba(139, 92, 246, 0.4)` | Texte `#ddd6fe`
+- Badge RAW+JPG        : Fond `rgba(16, 185, 129, 0.22)` | Bordure `rgba(16, 185, 129, 0.35)` | Texte `#a7f3d0`
+- Badge Video          : Fond `rgba(236, 72, 153, 0.25)` | Bordure `rgba(236, 72, 153, 0.4)` | Texte `#fbcfe8`
+- Badge Burst / Rafale : Fond `rgba(245, 158, 11, 0.25)` | Bordure `rgba(245, 158, 11, 0.45)` | Texte `#fcd34d`
+- Star / Favori        : Ambre Doré `#fbbf24` | Glow `rgba(251, 191, 36, 0.6)`
+- Mode Cut / Supprimer : Fond `rgba(244, 63, 94, 0.2)`   | Bordure `rgba(244, 63, 94, 0.3)`  | Texte `#fb7185`
+- Succès / Rapport     : Vert Émeraude `#10b981`
+
+D. Typographie & Contrastes de Texte
+- Text Primary         : `#ffffff`  (100% Opacité)
+- Text Secondary       : `rgba(255, 255, 255, 0.65)`
+- Text Muted           : `rgba(255, 255, 255, 0.40)`
+
+3.3. TYPOGRAPHIE, ÉCHELLE & HIÉRARCHIE VISUELLE
+--------------------------------------------------------------------------------
+- Police Principale (Font Family) : `'Outfit'`, sans-serif (Google Fonts)
+- Polices de Secours (Fallbacks)  : `-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial`
+
+Échelle Typographique Officielle :
+- Titres H1 / Hero : 36px à 48px | Weight: 700 (Bold) | Letter-spacing: -1px
+- Titres H2 / Section : 24px à 32px | Weight: 700 (Bold) | Letter-spacing: -0.5px
+- Titres H3 / Cards : 18px à 20px | Weight: 600 (SemiBold)
+- Corps de Texte (Body) : 14px à 16px | Weight: 400 (Regular) ou 500 (Medium) | Line-height: 1.6
+- Sous-titres & Descriptions : 13px | Color: `var(--text-secondary)`
+- Badges & Boutons SM : 11px à 12px | Weight: 600 ou 700 | Text-transform: UPPERCASE
+- Métadonnées Micro : 9px à 10px | Weight: 700
+
+3.4. SPÉCIFICATIONS DU SYSTÈME GLASSMORPHISM
+--------------------------------------------------------------------------------
+Pour obtenir l'effet dépoli signature sur le site web, appliquez scrupuleusement 
+les règles CSS suivantes sur les cartes et conteneurs :
+
+```css
+.glass-container {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 16px;
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.glass-container:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.22);
+}
+```
+
+3.5. GUIDE DES COMPOSANTS GRAPHIQUES & UI ELEMENTS
+--------------------------------------------------------------------------------
+
+1. Cartes 3D Empilées (Stacked Cards RAW+JPG & Burst)
+   - Les cartes représentant des paires RAW+JPG ou des rafales possèdent un 
+     effet d'empilement 3D créé par des ombres portées étagées :
+     `box-shadow: 3px 3px 0 0 rgba(20, 20, 25, 0.85), 3px 3px 0 1px rgba(255, 255, 255, 0.07), 6px 6px 0 0 rgba(20, 20, 25, 0.85), 6px 6px 0 1px rgba(255, 255, 255, 0.04);`
+   - Lors de la sélection, la bordure s'illumine en Bleu Électrique (`#3b82f6`) 
+     avec halo réactif.
+
+2. Boutons d'Action Lumineux (Glow Buttons)
+   - Bouton Principal (CTA Accent) : Dégradé `#2563eb` vers `#7c3aed`, bordure 
+     arrondie 10px, ombre portée `0 4px 15px rgba(37, 99, 235, 0.3)`.
+   - Pseudo-élément Glow au Survol : Flou d'arrière-plan de 10px augmentant 
+     l'opacité de 0.3 à 0.6 lors du survol.
+
+3. Commutateurs de Mode Segmentés (Pill Toggles)
+   - Boîtier noir semi-transparent `rgba(0, 0, 0, 0.5)` avec bordure 1px 
+     `rgba(255, 255, 255, 0.1)`.
+   - Option active rétro-éclairée (Violet pour `RAW+JPG`, Bleu pour `JPG`).
+
+4. Cases à Cocher Tri-États (Tri-State Checkboxes)
+   - État Coché (`✓`) : Fond Bleu Accent, coche blanche.
+   - État Indéterminé / Partiel (`−`) : Utilisé pour les rafales où seule une 
+     partie des photos est sélectionnée. Fond Bleu Accent avec tiret blanc.
+
+3.6. ICONOGRAPHIE & STYLE VISUEL DES SYMBOLES
+--------------------------------------------------------------------------------
+- Bibliothèque d'icônes officielle : **Lucide Icons** (`lucide.min.js`).
+- Épaisseur de trait (Stroke Width) : 1.5px à 2px.
+- Style : Épuré, géométrique, filaire et moderne.
+- Icônes Clés de l'Application :
+  * `shield` / `vault` : Logo principal SD-Vault.
+  * `folder-open` / `hard-drive` : Sélection des cartes SD et destinations.
+  * `layers` / `copy` : Stacking RAW+JPG et doublons.
+  * `zap` / `flame` : Vitesse de scan et moteur Rust multithread.
+  * `aperture` / `camera` / `images` : Rafales et culling photo.
+  * `star` : Favoris (remplissage ambre `#fbbf24`).
+  * `sliders` / `split` : Inspecteur de rafale et Split View.
+  * `film` / `video` : Séquences vidéo.
+
+3.7. MICRO-ANIMATIONS, TRANSITIONS & EFFETS DYNAMIQUES
+--------------------------------------------------------------------------------
+- Courbe de transition principale : `cubic-bezier(0.4, 0, 0.2, 1)` (durée: 0.2s à 0.3s).
+- Animation Float (Lévitation douce pour icônes d'accueil et héros) :
+  `@keyframes float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-8px); } }`
+- Animation Spin (Lueur de chargement et traitement) :
+  `@keyframes spin { to { transform: rotate(360deg); } }`
+- Effet Zoom sur Survol des Médias : `transform: scale(1.03)` avec transition de bordure.
+
+
+================================================================================
+4. ARCHITECTURE RECOMMANDÉE POUR LE SITE WEB VITRINE
+================================================================================
+
+Afin de maximiser la conversion, la clarté et l'impact visuel, voici la structure 
+recommandée pour la landing page web de SD-Vault.
+
+4.1. DÉCOUPAGE DES SECTIONS DU SITE (LANDING PAGE WIREFRAME)
+--------------------------------------------------------------------------------
+
+[SECTION 1 - HEADER & NAVBAR]
+- Logo SD-Vault avec icône Bouclier lumineuse et badge de version (`v1.4.3`).
+- Liens de navigation : Fonctionnalités, Rafales & Culling, Hardlinks, Raccourcis, Téléchargement.
+- Bouton CTA "Télécharger" (scroll rapide vers la section download).
+
+[SECTION 2 - HERO SECTION (IMPACT VISUEL)]
+- Titre accrocheur avec dégradé blanc-violet : 
+  "Déchargement Intelligent & Tri RAW+JPEG Ultra-Rapide pour Cartes SD."
+- Sous-titre explicatif : 
+  "Gagnez des heures après vos shootings photo et vidéo. Détectez les rafales, 
+  associez les paires RAW+JPG et isolez vos favoris à zéro espace disque grâce 
+  à notre moteur natif Rust."
+- Boutons CTA jumeaux :
+  * [Bouton Principal Glow] "Télécharger SD-Vault gratuit" (Détection automatique OS).
+  * [Bouton Secondaire Glass] "Voir la démonstration vidéo" / "Explorer sur GitHub".
+- Mockup d'interface interactif ou vidéo démo dans un cadre Glassmorphism avec 
+  lueurs radiales d'arrière-plan.
+
+[SECTION 3 - BARRE DE MÉTRIQUES & PERFORMANCE (SOCIAL PROOF TECHNICAL)]
+- Grille 4 colonnes avec chiffres clés :
+  * `10x Plus Rapide` (Moteur Rust & Rayon multithreadé)
+  * `0 MB Consommés` (Système de favoris par Hardlinks)
+  * `100% Local & Privé` (Aucun cloud, contrôle total sur vos données)
+  * `Multi-Constructeurs` (Sony, Canon, Fuji, Nikon, Panasonic, Leica)
+
+[SECTION 4 - GRILLE DES FONCTIONNALITÉS MAJEURES (FEATURES MATRIX)]
+- Cartes en Glassmorphism 3D survolables avec icônes Lucide :
+  1. Scan Parallèle Rust & Vignettes RAW instantanées.
+  2. Stacking RAW+JPG avec bascule en 1 clic.
+  3. Inspecteur de Rafales & Smart Culling automatique.
+  4. Liens physiques Hardlinks pour les favoris.
+  5. Lazy Directory Creation (`AAAA-MM-JJ - Suffixe`).
+  6. Lecteur Vidéo haute précision avec Range Requests 206.
+
+[SECTION 5 - FOCUS INTERACTIF : BURST INSPECTOR & SPLIT VIEW]
+- Présentation visuelle détaillée du mode Solo View & Split View.
+- Explication du culling intelligent (sélection de la dernière photo de la rafale).
+
+[SECTION 6 - TABLEAU DES RACCOURCIS CLAVIER (WORKFLOW OPTIMIZATION)]
+- Design moderne sous forme de clavier virtuel ou cartes de touches interactives (`←`, `→`, `Espace`, `R`, `F`, `Échap`).
+
+[SECTION 7 - SECTION TÉLÉCHARGEMENT & COMPATIBILITÉ (DOWNLOAD HUB)]
+- Cartes de téléchargement dédiées par OS :
+  * Windows : Fichier `.msi` / `.exe` (Support Mica intégré)
+  * Linux : Paquet `.AppImage` / `.deb` (Debian/Ubuntu)
+  * macOS : Image `.dmg` / `.app` (Universal Apple Silicon & Intel)
+- Code source open source sous licence MIT (Lien GitHub).
+
+[SECTION 8 - FOOTER (PIED DE PAGE)]
+- Mentions légales, licence MIT, crédits développeur (Alex Louf), icônes réseaux 
+  et récapitulatif des technologies (Tauri v2, Rust, Vanilla JS, Lucide).
+
+4.2. DIRECTIVES DE RÉDACTION (COPYWRITING & TON DE VOIX)
+--------------------------------------------------------------------------------
+- Ton : Professionnel, direct, technique mais accessible, rassurant et enthousiaste.
+- Mots-clés SEO à cibler : "déchargement carte SD", "tri photo RAW JPEG", "culling rafale photo", 
+  "organiseur photo Sony Canon Fuji", "archivage photo automatique", "hardlink photo favoris", 
+  "visionneuse RAW rapide Rust".
+
+4.3. RECOMMANDATIONS TECHNIQUES WEB & PERFORMANCE SEO
+--------------------------------------------------------------------------------
+- Frameworks Web : HTML5 / Vanilla CSS3 avec CSS Variables ou Vite / Next.js.
+- Font Loader : Charger la police Google Fonts `Outfit` (weights: 400, 500, 600, 700) avec `display=swap`.
+- SEO & OpenGraph :
+  * Meta Title : "SD-Vault | Déchargement intelligent, tri RAW+JPEG & culling de rafales"
+  * Meta Description : "SD-Vault est l'application de bureau ultime pour photographes. Tri rapide RAW+JPEG, inspecteur de rafales et favoris à 0 Mo."
+  * Image OpenGraph (OG Image) : Capture 1200x630px de l'interface Glassmorphism avec lueurs d'accentuation.
+- Responsive Design : Layout CSS Grid & Flexbox réactif de 320px à 4K.
+
+================================================================================
+FIN DU DOCUMENTATION DE LIVRAISON - SD-VAULT
+================================================================================

@@ -1,6 +1,6 @@
 [package]
 name = "sd-vault"
-version = "1.4.7"
+version = "1.5.0"
 description = "SD-Vault - Professional RAW+JPEG SD Card Import & Culling"
 authors = ["you"]
 edition = "2021"
@@ -29,5 +29,12 @@ window-vibrancy = "0.7"
 mime_guess = "2.0"
 percent-encoding = "2.3"
 rfd = "0.15"
+lru = "0.12"
+mimalloc = { version = "0.1", default-features = false }
 
-
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+panic = "abort"
+strip = true

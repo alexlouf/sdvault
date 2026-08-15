@@ -20,34 +20,10 @@ const invoke = (...args) => tauriCore.invoke(...args);
 const listen = (...args) => tauriEvent.listen(...args);
 
 // ----------------------------------------------------
-// Image Web Worker
-// ----------------------------------------------------
-const imageWorker = new Worker('imageWorker.js');
-let workerJobId = 0;
-const workerJobs = new Map();
-
-imageWorker.onmessage = (e) => {
-    const { id, bitmap, error, success } = e.data;
-    if (workerJobs.has(id)) {
-        const { resolve, reject } = workerJobs.get(id);
-        workerJobs.delete(id);
-        if (success) resolve(bitmap);
-        else reject(new Error(error));
-    }
-};
-
-function decodeImageOffThread(url) {
-    return new Promise((resolve, reject) => {
-        const id = ++workerJobId;
-        workerJobs.set(id, { resolve, reject });
-        imageWorker.postMessage({ url, id });
-    });
-}
-
-// ----------------------------------------------------
 // Application State
 // ----------------------------------------------------
 let scannedDays = {};          // { [date]: MediaFile[] }
+let cachedGroupedDays = {};    // { [date]: GroupedItem[] } - Memoized grouping cache
 let selectedFiles = new Set(); // Set of absolute file paths
 let favoriteFiles = new Set(); // Set of absolute file paths
 let daySuffixes = {};          // { [date]: string }
@@ -99,7 +75,7 @@ let elBtnBurstActiveSelect, elBtnBurstActiveStar, elBurstActiveStackControl;
 let elBtnBurstSelectAll, elBtnBurstDeselectAll;
 let elBtnBurstPrev, elBtnBurstNext, elBurstFilmstrip;
 
-// Refresh Lucide icons
+// Refresh Lucide icons scoped to a node for high performance
 function refreshIcons(rootNode = null) {
   const lucideLib = window.lucide || (typeof exports !== 'undefined' ? exports : null);
   if (lucideLib && lucideLib.createIcons) {
@@ -130,7 +106,8 @@ function formatBytes(bytes, decimals = 1) {
 function groupDayItems(files) {
   // 1. Group by base filename to pair RAW + JPG
   const groupedByBase = {};
-  files.forEach(file => {
+  for (let i = 0; i < files.length; i++) {
+    const file = files[i];
     const dotIndex = file.name.lastIndexOf('.');
     const baseName = dotIndex !== -1 ? file.name.substring(0, dotIndex) : file.name;
     const baseKey = baseName.toLowerCase();
@@ -139,10 +116,12 @@ function groupDayItems(files) {
       groupedByBase[baseKey] = [];
     }
     groupedByBase[baseKey].push(file);
-  });
+  }
 
   const baseItems = [];
-  Object.values(groupedByBase).forEach(group => {
+  const groupValues = Object.values(groupedByBase);
+  for (let i = 0; i < groupValues.length; i++) {
+    const group = groupValues[i];
     if (group.length === 2) {
       const rawFile = group.find(f => f.file_type === 'raw');
       const jpgFile = group.find(f => f.file_type === 'jpg');
@@ -163,11 +142,12 @@ function groupDayItems(files) {
           timestamp,
           thumbnail_url: jpgFile.thumbnail_url || rawFile.thumbnail_url
         });
-        return;
+        continue;
       }
     }
     
-    group.forEach(file => {
+    for (let j = 0; j < group.length; j++) {
+      const file = group[j];
       baseItems.push({
         type: 'single',
         name: file.name,
@@ -178,8 +158,8 @@ function groupDayItems(files) {
         timestamp: file.timestamp || 0,
         thumbnail_url: file.thumbnail_url
       });
-    });
-  });
+    }
+  }
 
   // Sort base items by timestamp ascending
   baseItems.sort((a, b) => {
@@ -210,7 +190,6 @@ function groupDayItems(files) {
       currentBurst.push(item);
     } else {
       const prevItem = currentBurst[currentBurst.length - 1];
-      // Time difference in milliseconds (EXIF SubSecTime precision)
       const timeDiffMs = (item.timestamp && prevItem.timestamp) ? Math.abs(item.timestamp - prevItem.timestamp) : 999999;
       
       // Strict burst condition: consecutive shots taken within <= 1000ms (1.0 second) of each other
@@ -254,32 +233,22 @@ function pushBurstOrSingle(burstList, targetArray) {
   }
 }
 
-function isFilenameSequence(name1, name2) {
-  const num1 = name1.match(/\d+/g);
-  const num2 = name2.match(/\d+/g);
-  if (num1 && num2) {
-    const n1 = parseInt(num1[num1.length - 1], 10);
-    const n2 = parseInt(num2[num2.length - 1], 10);
-    return n2 - n1 === 1;
-  }
-  return false;
-}
-
 // ----------------------------------------------------
 // UI Logic & Renderers
 // ----------------------------------------------------
 
-// Render timeline grid based on scannedDays
+// Render timeline grid using DocumentFragment for maximum batching speed
 function renderTimeline() {
   const scrollTop = elTimelineArea ? elTimelineArea.scrollTop : 0;
   if (!elTimelineArea) return;
-  elTimelineArea.innerHTML = '';
-  const dates = Object.keys(scannedDays).sort((a, b) => b.localeCompare(a));
+  
+  const dates = Object.keys(cachedGroupedDays).sort((a, b) => b.localeCompare(a));
 
   if (dates.length === 0) {
     elEmptyState.classList.remove('hidden');
     elTimelineArea.classList.add('hidden');
     elTimelineControls.classList.add('hidden');
+    elTimelineArea.innerHTML = '';
     return;
   }
 
@@ -287,9 +256,11 @@ function renderTimeline() {
   elTimelineArea.classList.remove('hidden');
   elTimelineControls.classList.remove('hidden');
 
+  const fragment = document.createDocumentFragment();
+
   dates.forEach(date => {
-    const files = scannedDays[date];
-    const dayItems = groupDayItems(files);
+    const files = scannedDays[date] || [];
+    const dayItems = cachedGroupedDays[date] || [];
 
     const dayBlock = document.createElement('div');
     dayBlock.className = 'day-block card';
@@ -371,16 +342,20 @@ function renderTimeline() {
     });
 
     dayBlock.querySelectorAll('.btn-day-mode').forEach(btn => {
-        btn.addEventListener('click', () => {
-          setDayStackMode(date, btn.dataset.mode);
-        });
+      btn.addEventListener('click', () => {
+        setDayStackMode(date, btn.dataset.mode);
       });
+    });
+
     updateDayHeaderSelectionState(dayBlock);
-    elTimelineArea.appendChild(dayBlock);
+    fragment.appendChild(dayBlock);
   });
 
+  elTimelineArea.innerHTML = '';
+  elTimelineArea.appendChild(fragment);
+
   if (elTimelineArea) elTimelineArea.scrollTop = scrollTop;
-  refreshIcons();
+  refreshIcons(elTimelineArea);
 }
 
 // Render a Standard Single or RAW+JPG Stack Card
@@ -405,7 +380,7 @@ function renderStandardCard(item, grid) {
       </div>
     `;
   } else if (item.thumbnail_url) {
-    previewHTML = `<img src="${item.thumbnail_url}" class="media-preview" alt="${item.name}" loading="lazy" />`;
+    previewHTML = `<img src="${item.thumbnail_url}" class="media-preview" alt="${item.name}" loading="lazy" decoding="async" />`;
   } else {
     previewHTML = `
       <div class="media-placeholder">
@@ -512,12 +487,13 @@ function getBurstSelectionInfo(burstItem) {
   let selectedCount = 0;
   const totalCount = burstItem.items.length;
 
-  burstItem.items.forEach(item => {
+  for (let i = 0; i < burstItem.items.length; i++) {
+    const item = burstItem.items[i];
     const isSel = item.type === 'stack'
       ? selectedFiles.has(item.jpgFile.path)
       : selectedFiles.has(item.files[0].path);
     if (isSel) selectedCount++;
-  });
+  }
 
   return {
     selectedCount,
@@ -542,7 +518,7 @@ function renderBurstCard(burstItem, grid) {
   card.dataset.path = coverItem.type === 'stack' ? coverItem.jpgFile.path : coverItem.files[0].path;
 
   let previewHTML = coverItem.thumbnail_url 
-    ? `<img src="${coverItem.thumbnail_url}" class="media-preview" alt="${burstItem.name}" loading="lazy" />`
+    ? `<img src="${coverItem.thumbnail_url}" class="media-preview" alt="${burstItem.name}" loading="lazy" decoding="async" />`
     : `<div class="media-placeholder"><i data-lucide="zap"></i><span>Rafale (${burstItem.items.length})</span></div>`;
 
   card.innerHTML = `
@@ -639,13 +615,14 @@ function selectItem(item) {
 // Helper to deselect an item
 function deselectItem(item) {
   if (!item || !item.files) return;
-  item.files.forEach(f => selectedFiles.delete(f.path));
+  for (let i = 0; i < item.files.length; i++) {
+    selectedFiles.delete(item.files[i].path);
+  }
 }
 
-// Select/Deselect files for a specific day block
+// Select/Deselect files for a specific day block without full re-render
 function selectDayFiles(date, checked) {
-  const files = scannedDays[date];
-  const items = groupDayItems(files);
+  const items = cachedGroupedDays[date] || [];
 
   items.forEach(item => {
     if (item.type === 'burst') {
@@ -659,20 +636,20 @@ function selectDayFiles(date, checked) {
     }
   });
 
-  renderTimeline();
+  const dayBlock = document.querySelector(`.day-block[data-date="${date}"]`);
+  if (dayBlock) {
+    updateDayBlockVisuals(dayBlock, date);
+  }
   updateSummary();
 }
 
 // Toggle stack mode: both (RAW+JPG) or jpg (JPG only)
 function setStackMode(baseKey, mode) {
   stackModes[baseKey] = mode;
-  let rawFile = null;
-  let jpgFile = null;
   let matchedItem = null;
 
-  for (const date of Object.keys(scannedDays)) {
-    const files = scannedDays[date];
-    const items = groupDayItems(files);
+  for (const date of Object.keys(cachedGroupedDays)) {
+    const items = cachedGroupedDays[date];
     for (const item of items) {
       if (item.type === 'burst') {
         const found = item.items.find(it => it.type === 'stack' && it.jpgFile.name.substring(0, it.jpgFile.name.lastIndexOf('.')).toLowerCase() === baseKey);
@@ -690,23 +667,24 @@ function setStackMode(baseKey, mode) {
     if (isSelected) {
       selectItem(matchedItem);
     }
+    updateTimelineCardVisuals(matchedItem);
   }
 
-  renderTimeline();
   updateSummary();
 }
 
-// Toggle global stack mode
+// Toggle global stack mode in place
 function setGlobalStackMode(mode) {
-  Object.keys(scannedDays).forEach(date => {
-    setDayStackMode(date, mode);
+  Object.keys(cachedGroupedDays).forEach(date => {
+    setDayStackMode(date, mode, false);
   });
+  updateAllCardsDOM();
+  updateSummary();
 }
 
-// Toggle day stack mode
-function setDayStackMode(date, mode) {
-  const files = scannedDays[date];
-  const dayItems = groupDayItems(files);
+// Toggle day stack mode in place
+function setDayStackMode(date, mode, updateUI = true) {
+  const dayItems = cachedGroupedDays[date] || [];
 
   const applyModeToItem = (item) => {
     if (item.type === 'stack') {
@@ -727,8 +705,11 @@ function setDayStackMode(date, mode) {
     }
   });
 
-  renderTimeline();
-  updateSummary();
+  if (updateUI) {
+    const dayBlock = document.querySelector(`.day-block[data-date="${date}"]`);
+    if (dayBlock) updateDayBlockVisuals(dayBlock, date);
+    updateSummary();
+  }
 }
 
 // Toggle item selection
@@ -761,20 +742,20 @@ function toggleItemSelection(item, cardEl) {
   updateSummary();
 }
 
-// Update day header checkbox state
+// Update day header checkbox state using memoized grouped days
 function updateDayHeaderSelectionState(dayBlockEl) {
   if (!dayBlockEl) return;
   const date = dayBlockEl.dataset.date;
-  const files = scannedDays[date];
-  if (!files) return;
-  const items = groupDayItems(files);
+  const items = cachedGroupedDays[date];
+  if (!items) return;
   const dayCheckbox = dayBlockEl.querySelector('.day-checkbox');
   if (!dayCheckbox) return;
 
   let totalCount = 0;
   let selectedCount = 0;
 
-  items.forEach(item => {
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i];
     totalCount++;
     if (item.type === 'burst') {
       const burstInfo = getBurstSelectionInfo(item);
@@ -788,7 +769,7 @@ function updateDayHeaderSelectionState(dayBlockEl) {
     } else {
       if (selectedFiles.has(item.files[0].path)) selectedCount++;
     }
-  });
+  }
 
   if (selectedCount === 0) {
     dayCheckbox.checked = false;
@@ -800,6 +781,30 @@ function updateDayHeaderSelectionState(dayBlockEl) {
     dayCheckbox.checked = false;
     dayCheckbox.indeterminate = true;
   }
+}
+
+// Update all cards and header in a day block in-place
+function updateDayBlockVisuals(dayBlock, date) {
+  if (!dayBlock) return;
+  const items = cachedGroupedDays[date] || [];
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i];
+    if (item.type === 'burst') {
+      updateBurstCardVisuals(item);
+    } else {
+      updateTimelineCardVisuals(item);
+    }
+  }
+  updateDayHeaderSelectionState(dayBlock);
+}
+
+// Fast in-place DOM update for all day blocks (used in select-all / deselect-all)
+function updateAllCardsDOM() {
+  const blocks = document.querySelectorAll('.day-block');
+  blocks.forEach(dayBlock => {
+    const date = dayBlock.dataset.date;
+    if (date) updateDayBlockVisuals(dayBlock, date);
+  });
 }
 
 // Toggle burst selection
@@ -879,17 +884,18 @@ function toggleItemFavorite(item, starBtnEl) {
   }
 }
 
-// Compile an ordered array of all items (single, stack, burst) in timeline
+// Compile an ordered array of all items in timeline using pre-calculated cachedGroupedDays
 function getTimelineItems() {
-  const dates = Object.keys(scannedDays).sort((a, b) => b.localeCompare(a));
+  const dates = Object.keys(cachedGroupedDays).sort((a, b) => b.localeCompare(a));
   const allItems = [];
-  dates.forEach(date => {
-    const files = scannedDays[date];
-    const items = groupDayItems(files);
-    items.forEach(it => {
-      allItems.push(it);
-    });
-  });
+  for (let i = 0; i < dates.length; i++) {
+    const items = cachedGroupedDays[dates[i]];
+    if (items) {
+      for (let j = 0; j < items.length; j++) {
+        allItems.push(items[j]);
+      }
+    }
+  }
   return allItems;
 }
 
@@ -929,7 +935,7 @@ function openLightbox(index, direction = 0) {
     if (elLightboxImg.resetZoom) elLightboxImg.resetZoom();
     elLightboxImg.src = item.thumbnail_url;
 
-    // Chargement progressif HD différé (150ms) pour une navigation rapide 60fps sans lag
+    // Progressive HD loading deferred (150ms) for 60fps responsive navigation
     lightboxHdTimeout = setTimeout(() => {
       if (currentLightboxLoadId !== loadId) return;
       const hdUrl = `${item.thumbnail_url}?full=true`;
@@ -938,9 +944,6 @@ function openLightbox(index, direction = 0) {
         if (currentLightboxLoadId === loadId) {
           elLightboxImg.src = hdUrl;
         }
-      };
-      hdImg.onerror = () => {
-        console.warn("Maintien du thumbnail suite échec HD pour :", item.name);
       };
       hdImg.src = hdUrl;
     }, 150);
@@ -954,7 +957,7 @@ function openLightbox(index, direction = 0) {
   elModalLightbox.classList.remove("hidden");
   updateLightboxSelectionVisuals(item);
   updateLightboxFavoriteVisuals(item);
-  refreshIcons();
+  refreshIcons(elModalLightbox);
 }
 
 function closeLightbox() {
@@ -967,7 +970,6 @@ function closeLightbox() {
   elLightboxImg.src = "";
   elLightboxVideo.pause();
   elLightboxVideo.src = "";
-  renderTimeline();
   updateSummary();
 }
 
@@ -987,14 +989,13 @@ function openBurstInspector(burstItem, startIdx) {
   if (startIdx !== undefined) {
     activeBurstIdx = startIdx;
   } else {
-    // Start at cover photo index (the LAST photo of the sequence by default)
     activeBurstIdx = burstItem.coverIndex !== undefined ? burstItem.coverIndex : burstItem.items.length - 1;
   }
   burstViewMode = 'solo';
 
   elModalBurstInspector.classList.remove("hidden");
   renderBurstInspector();
-  refreshIcons();
+  refreshIcons(elModalBurstInspector);
 }
 
 function closeBurstInspector() {
@@ -1006,7 +1007,6 @@ function closeBurstInspector() {
   if (burstSplitRefHdTimeout) { clearTimeout(burstSplitRefHdTimeout); burstSplitRefHdTimeout = null; }
   elModalBurstInspector.classList.add("hidden");
   currentBurstItem = null;
-  renderTimeline();
   updateSummary();
 }
 
@@ -1152,7 +1152,7 @@ function updateBurstInspectorUI() {
     let starIcon = itemIsStarred ? `<i data-lucide="star" style="width:12px; height:12px; fill:#f59e0b; color:#f59e0b;"></i>` : '';
 
     tile.innerHTML = `
-      <img src="${item.thumbnail_url}" alt="${item.name}" loading="lazy" />
+      <img src="${item.thumbnail_url}" alt="${item.name}" loading="lazy" decoding="async" />
       <input type="checkbox" class="filmstrip-check" ${itemIsSelected ? 'checked' : ''} />
       ${coverTag}
       <span class="filmstrip-badge">${idx + 1} ${starIcon}</span>
@@ -1193,14 +1193,19 @@ function updateSummary() {
   let countRaw = 0;
   let countVid = 0;
 
-  Object.values(scannedDays).flat().forEach(file => {
-    if (selectedFiles.has(file.path)) {
-      totalSize += file.size;
-      if (file.file_type === 'jpg') countJpg++;
-      else if (file.file_type === 'raw') countRaw++;
-      else if (file.file_type === 'video') countVid++;
+  const dates = Object.keys(scannedDays);
+  for (let i = 0; i < dates.length; i++) {
+    const files = scannedDays[dates[i]];
+    for (let j = 0; j < files.length; j++) {
+      const file = files[j];
+      if (selectedFiles.has(file.path)) {
+        totalSize += file.size;
+        if (file.file_type === 'jpg') countJpg++;
+        else if (file.file_type === 'raw') countRaw++;
+        else if (file.file_type === 'video') countVid++;
+      }
     }
-  });
+  }
 
   let parts = [];
   if (countJpg > 0) parts.push(`${countJpg} JPG`);
@@ -1241,18 +1246,21 @@ async function startScan() {
 
     scannedDays = await invoke("scan_source", { sourcePath });
 
+    // Compute and memoize grouping cache once per scan
+    cachedGroupedDays = {};
+    Object.keys(scannedDays).forEach(date => {
+      cachedGroupedDays[date] = groupDayItems(scannedDays[date]);
+    });
+
     selectedFiles.clear();
     favoriteFiles.clear();
     stackModes = {};
 
     // Group into items and select ONLY the LAST photo of each burst sequence by default!
-    Object.keys(scannedDays).forEach(date => {
-      const files = scannedDays[date];
-      const items = groupDayItems(files);
-
+    Object.keys(cachedGroupedDays).forEach(date => {
+      const items = cachedGroupedDays[date];
       items.forEach(item => {
         if (item.type === 'burst') {
-          // Select ONLY the cover item (LAST photo) by default!
           const coverItem = item.items[item.coverIndex];
           selectItem(coverItem);
         } else {
@@ -1311,7 +1319,7 @@ async function runImport() {
   elBtnModalClose.classList.add('hidden');
   elImportProgressFill.style.width = '0%';
   elModalTitle.innerHTML = `<i data-lucide="loader-2" class="spin"></i> Importation en cours...`;
-  refreshIcons();
+  refreshIcons(elModalImport);
 
   let totalFilesToCopy = 0;
   let copiedCount = 0;
@@ -1356,7 +1364,7 @@ async function runImport() {
     elImportReportView.classList.remove('hidden');
     elBtnModalClose.classList.remove('hidden');
     elModalTitle.innerHTML = `<i data-lucide="check" style="color: #10b981"></i> Terminé`;
-    refreshIcons();
+    refreshIcons(elModalImport);
 
   } catch (error) {
     console.error(error);
@@ -1393,7 +1401,6 @@ function toggleLightboxSelection() {
   updateLightboxSelectionVisuals(item);
   updateTimelineCardVisuals(item);
   updateSummary();
-  // refreshIcons(); // Removed to fix click lag
 }
 
 function toggleLightboxFavorite() {
@@ -1405,7 +1412,6 @@ function toggleLightboxFavorite() {
   updateLightboxSelectionVisuals(item);
   updateTimelineCardVisuals(item);
   updateSummary();
-  // refreshIcons(); // Removed to fix click lag
 }
 
 function updateLightboxMetadata(item) {
@@ -1513,6 +1519,31 @@ function updateTimelineCardVisuals(item) {
       const starBtn = cardEl.querySelector('.btn-star');
       if (starBtn) starBtn.classList.toggle('starred', isStarred);
 
+      // If it's a stack, update stack mode pill and badge
+      if (item.type === 'stack') {
+        const baseKey = item.jpgFile.name.substring(0, item.jpgFile.name.lastIndexOf('.')).toLowerCase();
+        const mode = stackModes[baseKey] || 'both';
+        cardEl.querySelectorAll('.stack-mode-pill .mode-opt').forEach(opt => {
+          opt.classList.toggle('active', opt.dataset.mode === mode);
+        });
+
+        const badge = cardEl.querySelector('.type-badge');
+        const sizeLabel = cardEl.querySelector('.file-size');
+        if (mode === 'jpg') {
+          if (badge) {
+            badge.className = 'type-badge badge-jpg';
+            badge.textContent = 'jpg';
+          }
+          if (sizeLabel) sizeLabel.textContent = formatBytes(item.jpgFile.size);
+        } else {
+          if (badge) {
+            badge.className = 'type-badge badge-raw-jpg';
+            badge.textContent = 'raw+jpg';
+          }
+          if (sizeLabel) sizeLabel.textContent = formatBytes(item.size);
+        }
+      }
+
       const dayBlock = cardEl.closest('.day-block');
       if (dayBlock) updateDayHeaderSelectionState(dayBlock);
     }
@@ -1571,10 +1602,6 @@ window.addEventListener("DOMContentLoaded", async () => {
   elBtnModeCopy = document.querySelector("#btn-mode-copy");
   elBtnModeCut = document.querySelector("#btn-mode-cut");
 
-  elStatCopied = document.querySelector("#stat-copied");
-  elStatFavs = document.querySelector("#stat-favs");
-  elStatSaved = document.querySelector("#stat-saved");
-
   elModalLightbox = document.querySelector("#modal-lightbox");
   elLightboxImg = document.querySelector("#lightbox-img");
   elLightboxVideo = document.querySelector("#lightbox-video");
@@ -1623,12 +1650,22 @@ window.addEventListener("DOMContentLoaded", async () => {
   elBtnImport.addEventListener("click", runImport);
 
   elBtnSelectAll.addEventListener("click", () => {
-    Object.keys(scannedDays).forEach(date => selectDayFiles(date, true));
+    Object.keys(cachedGroupedDays).forEach(date => {
+      cachedGroupedDays[date].forEach(item => {
+        if (item.type === 'burst') {
+          item.items.forEach(sub => selectItem(sub));
+        } else {
+          selectItem(item);
+        }
+      });
+    });
+    updateAllCardsDOM();
+    updateSummary();
   });
 
   elBtnDeselectAll.addEventListener("click", () => {
     selectedFiles.clear();
-    renderTimeline();
+    updateAllCardsDOM();
     updateSummary();
   });
 
@@ -1660,17 +1697,19 @@ window.addEventListener("DOMContentLoaded", async () => {
   elBtnModalClose.addEventListener("click", () => {
     elModalImport.classList.add('hidden');
 
-    // If original source files were moved/deleted from SD Card, remove them from scannedDays
+    // If original source files were moved/deleted from SD Card, update state
     if (deleteSourceAfterImport) {
       Object.keys(scannedDays).forEach(date => {
         scannedDays[date] = scannedDays[date].filter(f => !selectedFiles.has(f.path));
         if (scannedDays[date].length === 0) {
           delete scannedDays[date];
+          delete cachedGroupedDays[date];
+        } else {
+          cachedGroupedDays[date] = groupDayItems(scannedDays[date]);
         }
       });
     }
 
-    // Uncheck selected files so the user can immediately pick and import another set without rescanning!
     selectedFiles.clear();
     renderTimeline();
     updateSummary();
@@ -1732,7 +1771,7 @@ window.addEventListener("DOMContentLoaded", async () => {
     }
   });
 
-  elBtnBurstActiveSelect.addEventListener("change", (e) => {
+  elBtnBurstActiveSelect.addEventListener("change", () => {
     if (!currentBurstItem) return;
     const activeItem = currentBurstItem.items[activeBurstIdx];
     toggleItemSelection(activeItem);

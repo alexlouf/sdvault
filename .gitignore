@@ -32,3 +32,6 @@ dist-ssr
 # PowerShell scripts
 *.ps1
 
+# Binaries & packages
+*.deb
+

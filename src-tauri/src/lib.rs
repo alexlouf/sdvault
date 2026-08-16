@@ -95,8 +95,80 @@ fn inject_exif_orientation_if_missing(buffer: Vec<u8>, orientation: u32) -> Vec<
     result
 }
 
+// Helper: Parse a valid JPEG stream from a buffer slice, returning (total_length, width, height)
+fn find_valid_jpeg_at(data: &[u8], start: usize) -> Option<(usize, u32, u32)> {
+    if start + 4 >= data.len() || data[start] != 0xFF || data[start + 1] != 0xD8 {
+        return None;
+    }
+    let mut pos = start + 2;
+    let mut width = 0u32;
+    let mut height = 0u32;
+
+    while pos + 4 < data.len() {
+        if data[pos] != 0xFF {
+            return None;
+        }
+        let marker = data[pos + 1];
+        pos += 2;
+
+        if marker == 0xD8 { // SOI
+            continue;
+        }
+        if marker == 0xD9 { // EOI
+            return Some((pos - start, width, height));
+        }
+
+        if marker == 0xDA { // SOS - Start of Scan
+            if pos + 2 > data.len() {
+                return None;
+            }
+            let sos_len = u16::from_be_bytes([data[pos], data[pos + 1]]) as usize;
+            pos += sos_len;
+
+            while pos + 1 < data.len() {
+                if data[pos] == 0xFF {
+                    let next = data[pos + 1];
+                    if next == 0xD9 {
+                        return Some((pos + 2 - start, width, height));
+                    } else if next == 0x00 || (0xD0..=0xD7).contains(&next) {
+                        pos += 2;
+                        continue;
+                    } else if next == 0xFF {
+                        pos += 1;
+                        continue;
+                    } else {
+                        pos += 2;
+                        continue;
+                    }
+                } else {
+                    pos += 1;
+                }
+            }
+            return None;
+        }
+
+        if pos + 2 > data.len() {
+            return None;
+        }
+        let len = u16::from_be_bytes([data[pos], data[pos + 1]]) as usize;
+        if len < 2 || pos + len > data.len() {
+            return None;
+        }
+
+        if (marker == 0xC0 || marker == 0xC1 || marker == 0xC2) && len >= 7 {
+            let h = u16::from_be_bytes([data[pos + 3], data[pos + 4]]) as u32;
+            let w = u16::from_be_bytes([data[pos + 5], data[pos + 6]]) as u32;
+            width = w;
+            height = h;
+        }
+
+        pos += len;
+    }
+    None
+}
+
 // Extract embedded JPEG preview from EXIF/TIFF containers (RAW or JPEG files)
-fn get_embedded_jpeg(path: &Path) -> Option<Vec<u8>> {
+fn get_embedded_jpeg(path: &Path, high_res: bool) -> Option<Vec<u8>> {
     use std::io::{Seek, SeekFrom, Read};
     let file = fs::File::open(path).ok()?;
     let mut reader = BufReader::with_capacity(65536, file);
@@ -126,6 +198,82 @@ fn get_embedded_jpeg(path: &Path) -> Option<Vec<u8>> {
             .and_then(|f| f.value.get_uint(0))
     }).unwrap_or(1);
 
+    let mut underlying_file = reader.into_inner();
+
+    if high_res {
+        // 1. Check EXIF fields for large JPEG streams (> 100 KB)
+        let mut large_candidates: Vec<(u64, usize)> = Vec::new();
+        if let Some(r) = exifreader.as_ref() {
+            for ifd_idx in [exif::In::PRIMARY, exif::In(1), exif::In(2), exif::In(3), exif::In(4), exif::In(5)] {
+                if let (Some(off), Some(len)) = (
+                    r.get_field(exif::Tag::JPEGInterchangeFormat, ifd_idx).and_then(|f| f.value.get_uint(0)),
+                    r.get_field(exif::Tag::JPEGInterchangeFormatLength, ifd_idx).and_then(|f| f.value.get_uint(0))
+                ) {
+                    if len > 100_000 {
+                        large_candidates.push((base_offset + off as u64, len as usize));
+                    }
+                }
+                if let (Some(off), Some(len)) = (
+                    r.get_field(exif::Tag::StripOffsets, ifd_idx).and_then(|f| f.value.get_uint(0)),
+                    r.get_field(exif::Tag::StripByteCounts, ifd_idx).and_then(|f| f.value.get_uint(0))
+                ) {
+                    if len > 100_000 {
+                        large_candidates.push((base_offset + off as u64, len as usize));
+                    }
+                }
+            }
+        }
+
+        large_candidates.sort_by(|a, b| b.1.cmp(&a.1));
+        for (offset, length) in large_candidates {
+            if underlying_file.seek(SeekFrom::Start(offset)).is_ok() {
+                let mut buffer = vec![0u8; length];
+                if underlying_file.read_exact(&mut buffer).is_ok() {
+                    if buffer.len() >= 4 && buffer[0] == 0xFF && buffer[1] == 0xD8 {
+                        return Some(inject_exif_orientation_if_missing(buffer, orientation));
+                    }
+                }
+            }
+        }
+
+        // 2. Scan the first 24MB of the RAW container for full-resolution embedded JPEGs
+        if underlying_file.seek(SeekFrom::Start(0)).is_ok() {
+            let max_scan = 24 * 1024 * 1024;
+            let mut scan_buf = vec![0u8; max_scan];
+            let bytes_read = underlying_file.read(&mut scan_buf).unwrap_or(0);
+            let slice = &scan_buf[..bytes_read];
+
+            let mut best_jpeg: Option<Vec<u8>> = None;
+            let mut max_pixels = 0u64;
+            let mut max_len = 0usize;
+
+            let mut pos = 0;
+            while pos + 4 < slice.len() {
+                if slice[pos] == 0xFF && slice[pos + 1] == 0xD8 && slice[pos + 2] == 0xFF {
+                    if let Some((len, w, h)) = find_valid_jpeg_at(slice, pos) {
+                        let pixels = (w as u64) * (h as u64);
+                        if pixels > max_pixels || (pixels == max_pixels && len > max_len) {
+                            if len > 50_000 || pixels >= 1000 * 700 {
+                                max_pixels = pixels;
+                                max_len = len;
+                                best_jpeg = Some(slice[pos..pos + len].to_vec());
+                            }
+                        }
+                        pos += len;
+                        continue;
+                    }
+                }
+                pos += 1;
+            }
+
+            if let Some(raw_jpeg) = best_jpeg {
+                return Some(inject_exif_orientation_if_missing(raw_jpeg, orientation));
+            }
+        }
+
+        // Fallback: If no high-res preview could be found, return the standard thumbnail
+    }
+
     let offset_field = exifreader.as_ref().and_then(|r| {
         r.get_field(exif::Tag::JPEGInterchangeFormat, exif::In(1))
             .or_else(|| r.get_field(exif::Tag::JPEGInterchangeFormat, exif::In::PRIMARY))
@@ -141,7 +289,6 @@ fn get_embedded_jpeg(path: &Path) -> Option<Vec<u8>> {
     // Compute the absolute offset
     let absolute_offset = base_offset + relative_offset;
     
-    let mut underlying_file = reader.into_inner();
     underlying_file.seek(SeekFrom::Start(absolute_offset)).ok()?;
     let mut buffer = vec![0u8; length];
     underlying_file.read_exact(&mut buffer).ok()?;
@@ -709,7 +856,7 @@ pub fn run() {
                 } else if ext == "raf" {
                     get_raf_thumbnail(path)
                 } else {
-                    get_embedded_jpeg(path)
+                    get_embedded_jpeg(path, is_full)
                 };
 
                 if let Some(bytes) = thumb_bytes {

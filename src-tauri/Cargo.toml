@@ -1,6 +1,6 @@
 [package]
 name = "sd-vault"
-version = "1.5.0"
+version = "1.5.1"
 description = "SD-Vault - Professional RAW+JPEG SD Card Import & Culling"
 authors = ["you"]
 edition = "2021"

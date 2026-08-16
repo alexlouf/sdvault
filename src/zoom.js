@@ -93,6 +93,27 @@ export function enableZoom(imgElement) {
     setTransform();
     imgElement.style.cursor = 'zoom-in';
   };
+
+  imgElement.getZoomState = function() {
+    return { scale, pointX, pointY };
+  };
+
+  imgElement.setZoomState = function(state) {
+    if (!state) return;
+    scale = state.scale || 1;
+    pointX = state.pointX || 0;
+    pointY = state.pointY || 0;
+    setTransform();
+    if (scale > 1) {
+      imgElement.style.cursor = 'grab';
+    } else {
+      imgElement.style.cursor = 'zoom-in';
+    }
+  };
+
+  imgElement.isZoomed = function() {
+    return scale > 1;
+  };
   
   imgElement.style.cursor = 'zoom-in';
   imgElement.style.transformOrigin = '0 0';

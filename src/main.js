@@ -65,6 +65,20 @@ let burstSoloHdTimeout = null;
 let burstSplitActiveHdTimeout = null;
 let burstSplitRefHdTimeout = null;
 
+// Image Cache for high definition previews
+const hdImageCache = new Set();
+
+function preloadHdImage(url) {
+  if (!url) return;
+  const hdUrl = url.includes('?full=true') ? url : `${url}?full=true`;
+  if (hdImageCache.has(hdUrl)) return;
+  const img = new Image();
+  img.onload = () => {
+    hdImageCache.add(hdUrl);
+  };
+  img.src = hdUrl;
+}
+
 // Burst Inspector Elements
 let elModalBurstInspector, elBurstInspectorTitle, elBurstInspectorSubtitle;
 let elBtnBurstViewSolo, elBtnBurstViewSplit, elBtnBurstClose;
@@ -930,23 +944,36 @@ function openLightbox(index, direction = 0) {
     elLightboxVideo.classList.remove("hidden");
   } else if (item.thumbnail_url) {
     const loadId = ++currentLightboxLoadId;
+    const hdUrl = `${item.thumbnail_url}?full=true`;
 
     elLightboxImg.classList.remove("hidden");
     if (elLightboxImg.resetZoom) elLightboxImg.resetZoom();
-    elLightboxImg.src = item.thumbnail_url;
 
-    // Progressive HD loading deferred (150ms) for 60fps responsive navigation
-    lightboxHdTimeout = setTimeout(() => {
-      if (currentLightboxLoadId !== loadId) return;
-      const hdUrl = `${item.thumbnail_url}?full=true`;
+    if (hdImageCache.has(hdUrl)) {
+      elLightboxImg.src = hdUrl;
+    } else {
+      elLightboxImg.src = item.thumbnail_url;
+
       const hdImg = new Image();
       hdImg.onload = () => {
+        hdImageCache.add(hdUrl);
         if (currentLightboxLoadId === loadId) {
+          const isZoomed = elLightboxImg.isZoomed && elLightboxImg.isZoomed();
+          const zoomState = isZoomed ? elLightboxImg.getZoomState() : null;
           elLightboxImg.src = hdUrl;
+          if (zoomState) elLightboxImg.setZoomState(zoomState);
         }
       };
       hdImg.src = hdUrl;
-    }, 150);
+    }
+
+    // Preload next and previous lightbox items
+    if (index > 0 && lightboxItems[index - 1] && lightboxItems[index - 1].thumbnail_url) {
+      preloadHdImage(lightboxItems[index - 1].thumbnail_url);
+    }
+    if (index < lightboxItems.length - 1 && lightboxItems[index + 1] && lightboxItems[index + 1].thumbnail_url) {
+      preloadHdImage(lightboxItems[index + 1].thumbnail_url);
+    }
   }
 
   updateLightboxMetadata(item);
@@ -984,6 +1011,17 @@ function navigateLightbox(direction) {
 // Burst Inspector Implementation
 // ----------------------------------------------------
 
+function preloadAdjacentBurstHd() {
+  if (!currentBurstItem || !currentBurstItem.items.length) return;
+  const total = currentBurstItem.items.length;
+  for (let offset of [1, -1, 2, -2]) {
+    const idx = activeBurstIdx + offset;
+    if (idx >= 0 && idx < total) {
+      if (currentBurstItem.items[idx]) preloadHdImage(currentBurstItem.items[idx].thumbnail_url);
+    }
+  }
+}
+
 function openBurstInspector(burstItem, startIdx) {
   currentBurstItem = burstItem;
   if (startIdx !== undefined) {
@@ -994,6 +1032,10 @@ function openBurstInspector(burstItem, startIdx) {
   burstViewMode = 'solo';
 
   elModalBurstInspector.classList.remove("hidden");
+  if (elBurstSoloImg.resetZoom) elBurstSoloImg.resetZoom();
+  if (elBurstSplitImgActive.resetZoom) elBurstSplitImgActive.resetZoom();
+  if (elBurstSplitImgRef.resetZoom) elBurstSplitImgRef.resetZoom();
+  initBurstFilmstrip(burstItem);
   renderBurstInspector();
   refreshIcons(elModalBurstInspector);
 }
@@ -1032,20 +1074,30 @@ function renderBurstInspectorCanvas() {
     elBurstStageSplit.classList.add('hidden');
     
     const loadId = ++currentBurstSoloLoadId;
-    if (elBurstSoloImg.resetZoom) elBurstSoloImg.resetZoom();
-    elBurstSoloImg.src = activeItem.thumbnail_url;
+    const hdUrl = `${activeItem.thumbnail_url}?full=true`;
+    const isZoomed = elBurstSoloImg.isZoomed && elBurstSoloImg.isZoomed();
+    const zoomState = isZoomed ? elBurstSoloImg.getZoomState() : null;
 
-    burstSoloHdTimeout = setTimeout(() => {
-      if (currentBurstSoloLoadId !== loadId || burstViewMode !== 'solo' || !currentBurstItem) return;
-      const hdUrl = `${activeItem.thumbnail_url}?full=true`;
+    if (hdImageCache.has(hdUrl)) {
+      elBurstSoloImg.src = hdUrl;
+      if (zoomState) elBurstSoloImg.setZoomState(zoomState);
+    } else {
+      elBurstSoloImg.src = activeItem.thumbnail_url;
+      if (zoomState) elBurstSoloImg.setZoomState(zoomState);
+
       const hdImg = new Image();
       hdImg.onload = () => {
+        hdImageCache.add(hdUrl);
         if (currentBurstSoloLoadId === loadId && burstViewMode === 'solo' && currentBurstItem) {
+          const currentZoom = elBurstSoloImg.isZoomed && elBurstSoloImg.isZoomed() ? elBurstSoloImg.getZoomState() : null;
           elBurstSoloImg.src = hdUrl;
+          if (currentZoom) elBurstSoloImg.setZoomState(currentZoom);
         }
       };
       hdImg.src = hdUrl;
-    }, 150);
+    }
+
+    preloadAdjacentBurstHd();
 
   } else {
     elBurstStageSolo.classList.add('hidden');
@@ -1054,40 +1106,94 @@ function renderBurstInspectorCanvas() {
     const loadActiveId = ++currentBurstSplitActiveLoadId;
     const loadRefId = ++currentBurstSplitRefLoadId;
 
-    if (elBurstSplitImgActive.resetZoom) elBurstSplitImgActive.resetZoom();
-    if (elBurstSplitImgRef.resetZoom) elBurstSplitImgRef.resetZoom();
+    const hdActiveUrl = `${activeItem.thumbnail_url}?full=true`;
+    const hdRefUrl = `${coverItem.thumbnail_url}?full=true`;
 
-    elBurstSplitImgActive.src = activeItem.thumbnail_url;
-    elBurstSplitImgRef.src = coverItem.thumbnail_url;
+    const activeZoom = elBurstSplitImgActive.isZoomed && elBurstSplitImgActive.isZoomed() ? elBurstSplitImgActive.getZoomState() : null;
+    const refZoom = elBurstSplitImgRef.isZoomed && elBurstSplitImgRef.isZoomed() ? elBurstSplitImgRef.getZoomState() : null;
 
-    burstSplitActiveHdTimeout = setTimeout(() => {
-      if (currentBurstSplitActiveLoadId !== loadActiveId || burstViewMode !== 'split' || !currentBurstItem) return;
-      const hdActiveUrl = `${activeItem.thumbnail_url}?full=true`;
+    if (hdImageCache.has(hdActiveUrl)) {
+      elBurstSplitImgActive.src = hdActiveUrl;
+      if (activeZoom) elBurstSplitImgActive.setZoomState(activeZoom);
+    } else {
+      elBurstSplitImgActive.src = activeItem.thumbnail_url;
+      if (activeZoom) elBurstSplitImgActive.setZoomState(activeZoom);
+
       const hdActiveImg = new Image();
       hdActiveImg.onload = () => {
+        hdImageCache.add(hdActiveUrl);
         if (currentBurstSplitActiveLoadId === loadActiveId && burstViewMode === 'split' && currentBurstItem) {
+          const z = elBurstSplitImgActive.isZoomed && elBurstSplitImgActive.isZoomed() ? elBurstSplitImgActive.getZoomState() : null;
           elBurstSplitImgActive.src = hdActiveUrl;
+          if (z) elBurstSplitImgActive.setZoomState(z);
         }
       };
       hdActiveImg.src = hdActiveUrl;
-    }, 150);
+    }
 
-    burstSplitRefHdTimeout = setTimeout(() => {
-      if (currentBurstSplitRefLoadId !== loadRefId || burstViewMode !== 'split' || !currentBurstItem) return;
-      const hdRefUrl = `${coverItem.thumbnail_url}?full=true`;
+    if (hdImageCache.has(hdRefUrl)) {
+      elBurstSplitImgRef.src = hdRefUrl;
+      if (refZoom) elBurstSplitImgRef.setZoomState(refZoom);
+    } else {
+      elBurstSplitImgRef.src = coverItem.thumbnail_url;
+      if (refZoom) elBurstSplitImgRef.setZoomState(refZoom);
+
       const hdRefImg = new Image();
       hdRefImg.onload = () => {
+        hdImageCache.add(hdRefUrl);
         if (currentBurstSplitRefLoadId === loadRefId && burstViewMode === 'split' && currentBurstItem) {
+          const z = elBurstSplitImgRef.isZoomed && elBurstSplitImgRef.isZoomed() ? elBurstSplitImgRef.getZoomState() : null;
           elBurstSplitImgRef.src = hdRefUrl;
+          if (z) elBurstSplitImgRef.setZoomState(z);
         }
       };
       hdRefImg.src = hdRefUrl;
-    }, 150);
+    }
 
     if (elBurstSplitActiveNum) {
       elBurstSplitActiveNum.textContent = `${activeBurstIdx + 1}/${total}`;
     }
+
+    preloadAdjacentBurstHd();
   }
+}
+
+function initBurstFilmstrip(burstItem) {
+  elBurstFilmstrip.innerHTML = '';
+  burstItem.items.forEach((item, idx) => {
+    const tile = document.createElement('div');
+    const itemIsSelected = item.type === 'stack' ? selectedFiles.has(item.jpgFile.path) : selectedFiles.has(item.files[0].path);
+    const itemIsStarred = item.type === 'stack' ? favoriteFiles.has(item.jpgFile.path) : favoriteFiles.has(item.files[0].path);
+
+    tile.className = `filmstrip-item ${idx === activeBurstIdx ? 'active' : ''} ${idx === burstItem.coverIndex ? 'is-cover' : ''}`;
+    tile.dataset.index = idx;
+    
+    let coverTag = idx === burstItem.coverIndex ? `<span class="filmstrip-cover-tag">DERNIÈRE</span>` : '';
+    let starIcon = itemIsStarred ? `<i data-lucide="star" style="width:12px; height:12px; fill:#f59e0b; color:#f59e0b;"></i>` : '';
+
+    tile.innerHTML = `
+      <img src="${item.thumbnail_url}" alt="${item.name}" loading="lazy" decoding="async" />
+      <input type="checkbox" class="filmstrip-check" ${itemIsSelected ? 'checked' : ''} />
+      ${coverTag}
+      <span class="filmstrip-badge">${idx + 1} <span class="filmstrip-star-holder">${starIcon}</span></span>
+    `;
+
+    tile.addEventListener('click', (e) => {
+      if (e.target.tagName === 'INPUT') return;
+      activeBurstIdx = idx;
+      renderBurstInspector();
+    });
+
+    tile.querySelector('.filmstrip-check').addEventListener('change', (e) => {
+      e.stopPropagation();
+      toggleItemSelection(item);
+      updateBurstInspectorUI();
+      updateBurstCardVisuals(currentBurstItem);
+    });
+
+    elBurstFilmstrip.appendChild(tile);
+  });
+  refreshIcons(elBurstFilmstrip);
 }
 
 function updateBurstInspectorUI() {
@@ -1139,42 +1245,36 @@ function updateBurstInspectorUI() {
   }
   elBurstActiveMeta.textContent = metaDesc;
 
-  // Filmstrip rendering
-  elBurstFilmstrip.innerHTML = '';
-  currentBurstItem.items.forEach((item, idx) => {
-    const tile = document.createElement('div');
+  // Filmstrip state update (fast DOM update without re-creating <img> elements)
+  const tiles = elBurstFilmstrip.querySelectorAll('.filmstrip-item');
+  if (tiles.length !== currentBurstItem.items.length) {
+    initBurstFilmstrip(currentBurstItem);
+    return;
+  }
+
+  tiles.forEach((tile, idx) => {
+    const item = currentBurstItem.items[idx];
     const itemIsSelected = item.type === 'stack' ? selectedFiles.has(item.jpgFile.path) : selectedFiles.has(item.files[0].path);
     const itemIsStarred = item.type === 'stack' ? favoriteFiles.has(item.jpgFile.path) : favoriteFiles.has(item.files[0].path);
 
-    tile.className = `filmstrip-item ${idx === activeBurstIdx ? 'active' : ''} ${idx === currentBurstItem.coverIndex ? 'is-cover' : ''}`;
-    
-    let coverTag = idx === currentBurstItem.coverIndex ? `<span class="filmstrip-cover-tag">DERNIÈRE</span>` : '';
-    let starIcon = itemIsStarred ? `<i data-lucide="star" style="width:12px; height:12px; fill:#f59e0b; color:#f59e0b;"></i>` : '';
+    tile.classList.toggle('active', idx === activeBurstIdx);
+    const cb = tile.querySelector('.filmstrip-check');
+    if (cb) cb.checked = itemIsSelected;
 
-    tile.innerHTML = `
-      <img src="${item.thumbnail_url}" alt="${item.name}" loading="lazy" decoding="async" />
-      <input type="checkbox" class="filmstrip-check" ${itemIsSelected ? 'checked' : ''} />
-      ${coverTag}
-      <span class="filmstrip-badge">${idx + 1} ${starIcon}</span>
-    `;
-
-    tile.addEventListener('click', (e) => {
-      if (e.target.tagName === 'INPUT') return;
-      activeBurstIdx = idx;
-      renderBurstInspector();
-    });
-
-    tile.querySelector('.filmstrip-check').addEventListener('change', (e) => {
-      e.stopPropagation();
-      toggleItemSelection(item);
-      updateBurstInspectorUI();
-      updateBurstCardVisuals(currentBurstItem);
-    });
-
-    elBurstFilmstrip.appendChild(tile);
+    const starHolder = tile.querySelector('.filmstrip-star-holder');
+    if (starHolder) {
+      const starIcon = itemIsStarred ? `<i data-lucide="star" style="width:12px; height:12px; fill:#f59e0b; color:#f59e0b;"></i>` : '';
+      if (starHolder.innerHTML !== starIcon) {
+        starHolder.innerHTML = starIcon;
+        refreshIcons(starHolder);
+      }
+    }
   });
 
-  refreshIcons(elModalBurstInspector);
+  const activeTile = tiles[activeBurstIdx];
+  if (activeTile) {
+    activeTile.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+  }
 }
 
 // ----------------------------------------------------

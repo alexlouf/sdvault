@@ -397,6 +397,8 @@ function renderStandardCard(item, grid) {
   const card = document.createElement('div');
   card.className = `file-card ${isSelected ? 'selected' : ''} ${item.type === 'stack' ? 'card-stacked' : ''}`;
   card.dataset.path = item.type === 'stack' ? item.jpgFile.path : item.files[0].path;
+  item._cardEl = card;
+  card._item = item;
   
   let previewHTML = '';
   if (item.file_type === 'video') {
@@ -533,7 +535,8 @@ function getBurstSelectionInfo(burstItem) {
 
 // Render a Burst Stack Card (showing cover image thumbnail = last photo of burst sequence)
 function renderBurstCard(burstItem, grid) {
-  const coverItem = burstItem.items[burstItem.coverIndex];
+  const coverIdx = burstItem.coverIndex !== undefined ? burstItem.coverIndex : burstItem.items.length - 1;
+  const coverItem = burstItem.items[coverIdx];
   const info = getBurstSelectionInfo(burstItem);
   const isStarred = burstItem.items.some(item =>
     item.type === 'stack' ? favoriteFiles.has(item.jpgFile.path) : favoriteFiles.has(item.files[0].path)
@@ -543,6 +546,8 @@ function renderBurstCard(burstItem, grid) {
   const isCardActive = !info.isNone;
   card.className = `file-card card-burst ${isCardActive ? 'selected' : ''}`;
   card.dataset.path = coverItem.type === 'stack' ? coverItem.jpgFile.path : coverItem.files[0].path;
+  burstItem._cardEl = card;
+  card._item = burstItem;
 
   let previewHTML = coverItem.thumbnail_url 
     ? `<img src="${coverItem.thumbnail_url}" class="media-preview" alt="${burstItem.name}" loading="lazy" decoding="async" />`
@@ -739,8 +744,53 @@ function setDayStackMode(date, mode, updateUI = true) {
   }
 }
 
+// Find card DOM element safely (direct pointer first, fallback by dataset.path without CSS selector parsing issues)
+function findCardElement(item) {
+  if (!item) return null;
+  if (item._cardEl && item._cardEl.parentElement) {
+    return item._cardEl;
+  }
+  const itemKey = item.type === 'stack'
+    ? (item.jpgFile && item.jpgFile.path)
+    : (item.files && item.files.length > 0 ? item.files[0].path : null);
+  if (!itemKey) return null;
+
+  const cards = document.querySelectorAll('.file-card:not(.card-burst)');
+  for (let i = 0; i < cards.length; i++) {
+    if (cards[i].dataset.path === itemKey) {
+      item._cardEl = cards[i];
+      return cards[i];
+    }
+  }
+  return null;
+}
+
+function findBurstCardElement(burstItem) {
+  if (!burstItem || !burstItem.items || !burstItem.items.length) return null;
+  if (burstItem._cardEl && burstItem._cardEl.parentElement) {
+    return burstItem._cardEl;
+  }
+  const coverIdx = burstItem.coverIndex !== undefined ? burstItem.coverIndex : burstItem.items.length - 1;
+  const coverItem = burstItem.items[coverIdx];
+  if (!coverItem) return null;
+  const coverPath = coverItem.type === 'stack'
+    ? (coverItem.jpgFile && coverItem.jpgFile.path)
+    : (coverItem.files && coverItem.files.length > 0 ? coverItem.files[0].path : null);
+  if (!coverPath) return null;
+
+  const cards = document.querySelectorAll('.file-card.card-burst');
+  for (let i = 0; i < cards.length; i++) {
+    if (cards[i].dataset.path === coverPath) {
+      burstItem._cardEl = cards[i];
+      return cards[i];
+    }
+  }
+  return null;
+}
+
 // Toggle item selection
 function toggleItemSelection(item, cardEl) {
+  const targetCard = cardEl || findCardElement(item);
   const isSelected = item.type === 'stack' 
     ? selectedFiles.has(item.jpgFile.path) 
     : selectedFiles.has(item.files[0].path);
@@ -750,21 +800,21 @@ function toggleItemSelection(item, cardEl) {
   const newSelectedState = !isSelected;
   if (newSelectedState) {
     selectItem(item);
-    if (cardEl) {
-      cardEl.classList.add('selected');
-      const cb = cardEl.querySelector('.item-checkbox');
+    if (targetCard) {
+      targetCard.classList.add('selected');
+      const cb = targetCard.querySelector('.item-checkbox');
       if (cb) cb.checked = true;
     }
   } else {
-    if (cardEl) {
-      cardEl.classList.remove('selected');
-      const cb = cardEl.querySelector('.item-checkbox');
+    if (targetCard) {
+      targetCard.classList.remove('selected');
+      const cb = targetCard.querySelector('.item-checkbox');
       if (cb) cb.checked = false;
     }
   }
 
-  if (cardEl) {
-    updateDayHeaderSelectionState(cardEl.closest('.day-block'));
+  if (targetCard) {
+    updateDayHeaderSelectionState(targetCard.closest('.day-block'));
   }
   updateSummary();
 }
@@ -814,8 +864,14 @@ function updateDayHeaderSelectionState(dayBlockEl) {
 function updateDayBlockVisuals(dayBlock, date) {
   if (!dayBlock) return;
   const items = cachedGroupedDays[date] || [];
+  const grid = dayBlock.querySelector('.media-grid');
+  const cardEls = grid ? grid.children : [];
+
   for (let i = 0; i < items.length; i++) {
     const item = items[i];
+    if (cardEls[i]) {
+      item._cardEl = cardEls[i];
+    }
     if (item.type === 'burst') {
       updateBurstCardVisuals(item);
     } else {
@@ -836,6 +892,7 @@ function updateAllCardsDOM() {
 
 // Toggle burst selection
 function toggleBurstSelection(burstItem, cardEl) {
+  const targetCard = cardEl || findBurstCardElement(burstItem);
   const info = getBurstSelectionInfo(burstItem);
   const shouldSelectAll = !info.isAll;
 
@@ -847,19 +904,19 @@ function toggleBurstSelection(burstItem, cardEl) {
     }
   });
 
-  if (cardEl) {
+  if (targetCard) {
     const updatedInfo = getBurstSelectionInfo(burstItem);
-    cardEl.classList.toggle('selected', !updatedInfo.isNone);
-    const cb = cardEl.querySelector('.item-checkbox');
+    targetCard.classList.toggle('selected', !updatedInfo.isNone);
+    const cb = targetCard.querySelector('.item-checkbox');
     if (cb) {
       cb.checked = updatedInfo.isAll;
       cb.indeterminate = updatedInfo.isPartial;
     }
-    const labelSmall = cardEl.querySelector('.file-name small');
+    const labelSmall = targetCard.querySelector('.file-name small');
     if (labelSmall) {
       labelSmall.textContent = `(${updatedInfo.selectedCount}/${updatedInfo.totalCount} sél.)`;
     }
-    updateDayHeaderSelectionState(cardEl.closest('.day-block'));
+    updateDayHeaderSelectionState(targetCard.closest('.day-block'));
   }
   updateSummary();
 }
@@ -885,6 +942,9 @@ function toggleBurstFavorite(burstItem, starBtnEl) {
 
 // Toggle item favorite state
 function toggleItemFavorite(item, starBtnEl) {
+  const targetCard = starBtnEl ? starBtnEl.closest('.file-card') : findCardElement(item);
+  const targetStarBtn = starBtnEl || (targetCard ? targetCard.querySelector('.btn-star') : null);
+
   const isStarred = item.type === 'stack'
     ? favoriteFiles.has(item.jpgFile.path)
     : favoriteFiles.has(item.files[0].path);
@@ -899,15 +959,15 @@ function toggleItemFavorite(item, starBtnEl) {
 
   const newStarredState = !isStarred;
   if (newStarredState) {
-    if (starBtnEl) starBtnEl.classList.add('starred');
+    if (targetStarBtn) targetStarBtn.classList.add('starred');
     const isSelected = item.type === 'stack'
       ? selectedFiles.has(item.jpgFile.path)
       : selectedFiles.has(item.files[0].path);
     if (!isSelected) {
-      toggleItemSelection(item, starBtnEl ? starBtnEl.closest('.file-card') : null);
+      toggleItemSelection(item, targetCard);
     }
   } else {
-    if (starBtnEl) starBtnEl.classList.remove('starred');
+    if (targetStarBtn) targetStarBtn.classList.remove('starred');
   }
 }
 
@@ -1062,6 +1122,9 @@ function closeBurstInspector() {
   if (burstSplitActiveHdTimeout) { clearTimeout(burstSplitActiveHdTimeout); burstSplitActiveHdTimeout = null; }
   if (burstSplitRefHdTimeout) { clearTimeout(burstSplitRefHdTimeout); burstSplitRefHdTimeout = null; }
   elModalBurstInspector.classList.add("hidden");
+  if (currentBurstItem) {
+    updateBurstCardVisuals(currentBurstItem);
+  }
   currentBurstItem = null;
   updateSummary();
 }
@@ -1511,7 +1574,8 @@ function toggleLightboxSelection() {
   const item = lightboxItems[lightboxIndex];
   if (!item) return;
 
-  toggleItemSelection(item);
+  const cardEl = findCardElement(item);
+  toggleItemSelection(item, cardEl);
   updateLightboxSelectionVisuals(item);
   updateTimelineCardVisuals(item);
   updateSummary();
@@ -1521,7 +1585,9 @@ function toggleLightboxFavorite() {
   const item = lightboxItems[lightboxIndex];
   if (!item) return;
 
-  toggleItemFavorite(item);
+  const cardEl = findCardElement(item);
+  const starBtn = cardEl ? cardEl.querySelector('.btn-star') : null;
+  toggleItemFavorite(item, starBtn);
   updateLightboxFavoriteVisuals(item);
   updateLightboxSelectionVisuals(item);
   updateTimelineCardVisuals(item);
@@ -1584,9 +1650,7 @@ function toggleBurstActiveStackMode() {
 
 function updateBurstCardVisuals(burstItem) {
   if (!burstItem || !burstItem.items || !burstItem.items.length) return;
-  const coverItem = burstItem.items[burstItem.coverIndex !== undefined ? burstItem.coverIndex : burstItem.items.length - 1];
-  const coverPath = coverItem.type === 'stack' ? coverItem.jpgFile.path : coverItem.files[0].path;
-  const card = document.querySelector(`.file-card.card-burst[data-path="${coverPath}"]`);
+  const card = findBurstCardElement(burstItem);
   if (!card) return;
 
   const info = getBurstSelectionInfo(burstItem);
@@ -1615,52 +1679,49 @@ function updateBurstCardVisuals(burstItem) {
 
 function updateTimelineCardVisuals(item) {
   if (!item) return;
-  const itemKey = item.type === 'stack' ? item.jpgFile.path : (item.files && item.files.length > 0 ? item.files[0].path : null);
-  if (itemKey) {
-    const cardEl = document.querySelector(`.file-card[data-path="${itemKey}"]`);
-    if (cardEl) {
-      const isSelected = item.type === 'stack'
-        ? selectedFiles.has(item.jpgFile.path)
-        : selectedFiles.has(item.files[0].path);
-      const isStarred = item.type === 'stack'
-        ? favoriteFiles.has(item.jpgFile.path)
-        : favoriteFiles.has(item.files[0].path);
+  const cardEl = findCardElement(item);
+  if (cardEl) {
+    const isSelected = item.type === 'stack'
+      ? selectedFiles.has(item.jpgFile.path)
+      : selectedFiles.has(item.files[0].path);
+    const isStarred = item.type === 'stack'
+      ? favoriteFiles.has(item.jpgFile.path)
+      : favoriteFiles.has(item.files[0].path);
 
-      cardEl.classList.toggle('selected', isSelected);
-      const cb = cardEl.querySelector('.item-checkbox');
-      if (cb) cb.checked = isSelected;
+    cardEl.classList.toggle('selected', isSelected);
+    const cb = cardEl.querySelector('.item-checkbox');
+    if (cb) cb.checked = isSelected;
 
-      const starBtn = cardEl.querySelector('.btn-star');
-      if (starBtn) starBtn.classList.toggle('starred', isStarred);
+    const starBtn = cardEl.querySelector('.btn-star');
+    if (starBtn) starBtn.classList.toggle('starred', isStarred);
 
-      // If it's a stack, update stack mode pill and badge
-      if (item.type === 'stack') {
-        const baseKey = item.jpgFile.name.substring(0, item.jpgFile.name.lastIndexOf('.')).toLowerCase();
-        const mode = stackModes[baseKey] || 'both';
-        cardEl.querySelectorAll('.stack-mode-pill .mode-opt').forEach(opt => {
-          opt.classList.toggle('active', opt.dataset.mode === mode);
-        });
+    // If it's a stack, update stack mode pill and badge
+    if (item.type === 'stack') {
+      const baseKey = item.jpgFile.name.substring(0, item.jpgFile.name.lastIndexOf('.')).toLowerCase();
+      const mode = stackModes[baseKey] || 'both';
+      cardEl.querySelectorAll('.stack-mode-pill .mode-opt').forEach(opt => {
+        opt.classList.toggle('active', opt.dataset.mode === mode);
+      });
 
-        const badge = cardEl.querySelector('.type-badge');
-        const sizeLabel = cardEl.querySelector('.file-size');
-        if (mode === 'jpg') {
-          if (badge) {
-            badge.className = 'type-badge badge-jpg';
-            badge.textContent = 'jpg';
-          }
-          if (sizeLabel) sizeLabel.textContent = formatBytes(item.jpgFile.size);
-        } else {
-          if (badge) {
-            badge.className = 'type-badge badge-raw-jpg';
-            badge.textContent = 'raw+jpg';
-          }
-          if (sizeLabel) sizeLabel.textContent = formatBytes(item.size);
+      const badge = cardEl.querySelector('.type-badge');
+      const sizeLabel = cardEl.querySelector('.file-size');
+      if (mode === 'jpg') {
+        if (badge) {
+          badge.className = 'type-badge badge-jpg';
+          badge.textContent = 'jpg';
         }
+        if (sizeLabel) sizeLabel.textContent = formatBytes(item.jpgFile.size);
+      } else {
+        if (badge) {
+          badge.className = 'type-badge badge-raw-jpg';
+          badge.textContent = 'raw+jpg';
+        }
+        if (sizeLabel) sizeLabel.textContent = formatBytes(item.size);
       }
-
-      const dayBlock = cardEl.closest('.day-block');
-      if (dayBlock) updateDayHeaderSelectionState(dayBlock);
     }
+
+    const dayBlock = cardEl.closest('.day-block');
+    if (dayBlock) updateDayHeaderSelectionState(dayBlock);
   }
 
   if (currentBurstItem) {

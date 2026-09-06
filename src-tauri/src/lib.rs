@@ -167,8 +167,106 @@ fn find_valid_jpeg_at(data: &[u8], start: usize) -> Option<(usize, u32, u32)> {
     None
 }
 
+pub const URI_PATH_SET: &percent_encoding::AsciiSet = &percent_encoding::CONTROLS
+    .add(b' ')
+    .add(b'"')
+    .add(b'<')
+    .add(b'>')
+    .add(b'`')
+    .add(b'#')
+    .add(b'?')
+    .add(b'{')
+    .add(b'}')
+    .add(b'%');
+
+pub fn build_asset_url(path_str: &str) -> String {
+    let encoded = percent_encoding::utf8_percent_encode(path_str, URI_PATH_SET).to_string();
+    #[cfg(target_os = "windows")]
+    {
+        format!("http://vault-asset.localhost/{}", encoded)
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let clean = if encoded.starts_with('/') {
+            &encoded[1..]
+        } else {
+            &encoded
+        };
+        format!("vault-asset://localhost/{}", clean)
+    }
+}
+
+pub fn normalize_asset_path(raw_path: &str) -> String {
+    let decoded = percent_encoding::percent_decode_str(raw_path).decode_utf8_lossy();
+    let mut final_path = decoded.into_owned();
+
+    // Windows drive letters: /C:/path or /c:/path -> C:/path
+    if final_path.starts_with('/') && final_path.len() >= 3 && final_path.chars().nth(2) == Some(':') {
+        final_path.remove(0);
+    } else if final_path.starts_with("//") {
+        // Unix absolute path if double-slashed: //home/user -> /home/user
+        final_path.remove(0);
+    }
+
+    final_path
+}
+
+// Helper: Collect all valid embedded JPEG candidates from EXIF IFDs
+fn collect_exif_jpeg_candidates<R: std::io::Read + std::io::Seek>(
+    exifreader: Option<&exif::Exif>,
+    file: &mut R,
+    base_offset: u64,
+) -> Vec<(u64, usize)> {
+    use std::io::SeekFrom;
+    let mut candidates: Vec<(u64, usize)> = Vec::new();
+
+    if let Some(r) = exifreader {
+        for ifd_idx in [
+            exif::In::PRIMARY,
+            exif::In(1),
+            exif::In(2),
+            exif::In(3),
+            exif::In(4),
+            exif::In(5),
+        ] {
+            if let (Some(off), Some(len)) = (
+                r.get_field(exif::Tag::JPEGInterchangeFormat, ifd_idx)
+                    .and_then(|f| f.value.get_uint(0)),
+                r.get_field(exif::Tag::JPEGInterchangeFormatLength, ifd_idx)
+                    .and_then(|f| f.value.get_uint(0)),
+            ) {
+                if len > 0 {
+                    candidates.push((base_offset + off as u64, len as usize));
+                }
+            }
+            if let (Some(off), Some(len)) = (
+                r.get_field(exif::Tag::StripOffsets, ifd_idx)
+                    .and_then(|f| f.value.get_uint(0)),
+                r.get_field(exif::Tag::StripByteCounts, ifd_idx)
+                    .and_then(|f| f.value.get_uint(0)),
+            ) {
+                if len > 0 {
+                    candidates.push((base_offset + off as u64, len as usize));
+                }
+            }
+        }
+    }
+
+    // Filter to candidates that start with valid JPEG SOI [0xFF, 0xD8]
+    let mut valid = Vec::new();
+    for (off, len) in candidates {
+        if len >= 4 && file.seek(SeekFrom::Start(off)).is_ok() {
+            let mut magic = [0u8; 2];
+            if file.read_exact(&mut magic).is_ok() && magic == [0xFF, 0xD8] {
+                valid.push((off, len));
+            }
+        }
+    }
+    valid
+}
+
 // Extract embedded JPEG preview from EXIF/TIFF containers (RAW or JPEG files)
-fn get_embedded_jpeg(path: &Path, high_res: bool) -> Option<Vec<u8>> {
+pub fn get_embedded_jpeg(path: &Path, high_res: bool) -> Option<Vec<u8>> {
     use std::io::{Seek, SeekFrom, Read};
     let file = fs::File::open(path).ok()?;
     let mut reader = BufReader::with_capacity(65536, file);
@@ -199,31 +297,12 @@ fn get_embedded_jpeg(path: &Path, high_res: bool) -> Option<Vec<u8>> {
     }).unwrap_or(1);
 
     let mut underlying_file = reader.into_inner();
+    let candidates = collect_exif_jpeg_candidates(exifreader.as_ref(), &mut underlying_file, base_offset);
 
     if high_res {
-        // 1. Check EXIF fields for large JPEG streams (> 100 KB)
-        let mut large_candidates: Vec<(u64, usize)> = Vec::new();
-        if let Some(r) = exifreader.as_ref() {
-            for ifd_idx in [exif::In::PRIMARY, exif::In(1), exif::In(2), exif::In(3), exif::In(4), exif::In(5)] {
-                if let (Some(off), Some(len)) = (
-                    r.get_field(exif::Tag::JPEGInterchangeFormat, ifd_idx).and_then(|f| f.value.get_uint(0)),
-                    r.get_field(exif::Tag::JPEGInterchangeFormatLength, ifd_idx).and_then(|f| f.value.get_uint(0))
-                ) {
-                    if len > 100_000 {
-                        large_candidates.push((base_offset + off as u64, len as usize));
-                    }
-                }
-                if let (Some(off), Some(len)) = (
-                    r.get_field(exif::Tag::StripOffsets, ifd_idx).and_then(|f| f.value.get_uint(0)),
-                    r.get_field(exif::Tag::StripByteCounts, ifd_idx).and_then(|f| f.value.get_uint(0))
-                ) {
-                    if len > 100_000 {
-                        large_candidates.push((base_offset + off as u64, len as usize));
-                    }
-                }
-            }
-        }
-
+        // High-resolution lightbox preview:
+        // 1. Try large candidates from EXIF (>= 50 KB), sorted by size descending
+        let mut large_candidates: Vec<_> = candidates.iter().filter(|c| c.1 >= 50_000).cloned().collect();
         large_candidates.sort_by(|a, b| b.1.cmp(&a.1));
         for (offset, length) in large_candidates {
             if underlying_file.seek(SeekFrom::Start(offset)).is_ok() {
@@ -236,16 +315,19 @@ fn get_embedded_jpeg(path: &Path, high_res: bool) -> Option<Vec<u8>> {
             }
         }
 
-        // 2. Scan the first 24MB of the RAW container for full-resolution embedded JPEGs
+        // 2. Scan the first 32MB of the RAW container for full-resolution embedded JPEGs
         if underlying_file.seek(SeekFrom::Start(0)).is_ok() {
-            let max_scan = 24 * 1024 * 1024;
+            let max_scan = 32 * 1024 * 1024;
             let mut scan_buf = vec![0u8; max_scan];
             let bytes_read = underlying_file.read(&mut scan_buf).unwrap_or(0);
             let slice = &scan_buf[..bytes_read];
 
-            let mut best_jpeg: Option<Vec<u8>> = None;
+            let mut best_large_jpeg: Option<Vec<u8>> = None;
+            let mut best_any_jpeg: Option<Vec<u8>> = None;
             let mut max_pixels = 0u64;
             let mut max_len = 0usize;
+            let mut any_max_pixels = 0u64;
+            let mut any_max_len = 0usize;
 
             let mut pos = 0;
             while pos + 4 < slice.len() {
@@ -256,8 +338,13 @@ fn get_embedded_jpeg(path: &Path, high_res: bool) -> Option<Vec<u8>> {
                             if len > 50_000 || pixels >= 1000 * 700 {
                                 max_pixels = pixels;
                                 max_len = len;
-                                best_jpeg = Some(slice[pos..pos + len].to_vec());
+                                best_large_jpeg = Some(slice[pos..pos + len].to_vec());
                             }
+                        }
+                        if pixels > any_max_pixels || (pixels == any_max_pixels && len > any_max_len) {
+                            any_max_pixels = pixels;
+                            any_max_len = len;
+                            best_any_jpeg = Some(slice[pos..pos + len].to_vec());
                         }
                         pos += len;
                         continue;
@@ -266,34 +353,62 @@ fn get_embedded_jpeg(path: &Path, high_res: bool) -> Option<Vec<u8>> {
                 pos += 1;
             }
 
-            if let Some(raw_jpeg) = best_jpeg {
+            if let Some(raw_jpeg) = best_large_jpeg.or(best_any_jpeg) {
                 return Some(inject_exif_orientation_if_missing(raw_jpeg, orientation));
             }
         }
 
-        // Fallback: If no high-res preview could be found, return the standard thumbnail
+        // 3. Fallback: If no high-res preview found, return any candidate from EXIF (largest first)
+        let mut all_sorted = candidates.clone();
+        all_sorted.sort_by(|a, b| b.1.cmp(&a.1));
+        for (offset, length) in all_sorted {
+            if underlying_file.seek(SeekFrom::Start(offset)).is_ok() {
+                let mut buffer = vec![0u8; length];
+                if underlying_file.read_exact(&mut buffer).is_ok() {
+                    if buffer.len() >= 4 && buffer[0] == 0xFF && buffer[1] == 0xD8 {
+                        return Some(inject_exif_orientation_if_missing(buffer, orientation));
+                    }
+                }
+            }
+        }
+    } else {
+        // Thumbnail mode (high_res = false):
+        // 1. If we have EXIF candidates, prefer standard thumbnail sizes (>= 10KB), or any candidate
+        if !candidates.is_empty() {
+            let mut sorted = candidates.clone();
+            sorted.sort_by(|a, b| a.1.cmp(&b.1));
+            let best_thumb = sorted.iter().find(|c| c.1 >= 10_000).unwrap_or(&sorted[0]);
+            if underlying_file.seek(SeekFrom::Start(best_thumb.0)).is_ok() {
+                let mut buffer = vec![0u8; best_thumb.1];
+                if underlying_file.read_exact(&mut buffer).is_ok() {
+                    if buffer.len() >= 4 && buffer[0] == 0xFF && buffer[1] == 0xD8 {
+                        return Some(inject_exif_orientation_if_missing(buffer, orientation));
+                    }
+                }
+            }
+        }
+
+        // 2. Scan fallback: scan first 16MB for the first valid embedded JPEG thumbnail
+        if underlying_file.seek(SeekFrom::Start(0)).is_ok() {
+            let max_scan = 16 * 1024 * 1024;
+            let mut scan_buf = vec![0u8; max_scan];
+            let bytes_read = underlying_file.read(&mut scan_buf).unwrap_or(0);
+            let slice = &scan_buf[..bytes_read];
+
+            let mut pos = 0;
+            while pos + 4 < slice.len() {
+                if slice[pos] == 0xFF && slice[pos + 1] == 0xD8 && slice[pos + 2] == 0xFF {
+                    if let Some((len, _w, _h)) = find_valid_jpeg_at(slice, pos) {
+                        let raw_jpeg = slice[pos..pos + len].to_vec();
+                        return Some(inject_exif_orientation_if_missing(raw_jpeg, orientation));
+                    }
+                }
+                pos += 1;
+            }
+        }
     }
 
-    let offset_field = exifreader.as_ref().and_then(|r| {
-        r.get_field(exif::Tag::JPEGInterchangeFormat, exif::In(1))
-            .or_else(|| r.get_field(exif::Tag::JPEGInterchangeFormat, exif::In::PRIMARY))
-    })?;
-    let length_field = exifreader.as_ref().and_then(|r| {
-        r.get_field(exif::Tag::JPEGInterchangeFormatLength, exif::In(1))
-            .or_else(|| r.get_field(exif::Tag::JPEGInterchangeFormatLength, exif::In::PRIMARY))
-    })?;
-        
-    let relative_offset = offset_field.value.get_uint(0)? as u64;
-    let length = length_field.value.get_uint(0)? as usize;
-    
-    // Compute the absolute offset
-    let absolute_offset = base_offset + relative_offset;
-    
-    underlying_file.seek(SeekFrom::Start(absolute_offset)).ok()?;
-    let mut buffer = vec![0u8; length];
-    underlying_file.read_exact(&mut buffer).ok()?;
-    
-    Some(inject_exif_orientation_if_missing(buffer, orientation))
+    None
 }
 
 fn get_raw_orientation(path: &Path) -> u32 {
@@ -446,10 +561,10 @@ fn scan_directory(dir: &Path, files: &mut Vec<PathBuf>) {
         for entry in entries.flatten() {
             let path = entry.path();
             if path.is_dir() {
-                // Skip Sony metadata and thumbnail directories
+                // Skip Sony metadata and thumbnail directories, and auto-generated favoris subfolder
                 if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
                     let name_lower = name.to_lowercase();
-                    if name_lower == "thmbnl" || name_lower == "sony" {
+                    if name_lower == "thmbnl" || name_lower == "sony" || name_lower == "favoris" {
                         continue;
                     }
                 }
@@ -507,15 +622,7 @@ async fn scan_source(app: tauri::AppHandle, source_path: String) -> Result<HashM
             }
 
             let (date, timestamp) = get_capture_info(&path, &file_type, &metadata);
-            let thumbnail_url = if file_type == "video" {
-                "".to_string()
-            } else {
-                #[cfg(target_os = "windows")]
-                let url = format!("http://vault-asset.localhost/{}", path_str);
-                #[cfg(not(target_os = "windows"))]
-                let url = format!("vault-asset://localhost/{}", path_str);
-                url
-            };
+            let thumbnail_url = build_asset_url(&path_str);
 
             let current = progress_counter.fetch_add(1, Ordering::Relaxed) + 1;
             if current == total_files || current % 10 == 0 {
@@ -736,14 +843,7 @@ pub fn run() {
             let uri = request.uri();
             let path_str = uri.path();
             
-            // Decode percent-encoded paths (e.g. spaces, accents)
-            let decoded_path = percent_encoding::percent_decode_str(path_str).decode_utf8_lossy();
-            
-            // Normalize path for Windows drive letters (strip leading slash)
-            let mut final_path = decoded_path.into_owned();
-            if final_path.starts_with('/') && final_path.chars().nth(2) == Some(':') {
-                final_path.remove(0);
-            }
+            let final_path = normalize_asset_path(path_str);
             let is_full = uri.query().map(|q| q.contains("full=true")).unwrap_or(false);
             
             let path = Path::new(&final_path);
@@ -852,9 +952,9 @@ pub fn run() {
 
             if should_extract_thumbnail {
                 let thumb_bytes = if ext == "cr3" {
-                    get_cr3_thumbnail(path)
+                    get_cr3_thumbnail(path).or_else(|| get_embedded_jpeg(path, is_full))
                 } else if ext == "raf" {
-                    get_raf_thumbnail(path)
+                    get_raf_thumbnail(path).or_else(|| get_embedded_jpeg(path, is_full))
                 } else {
                     get_embedded_jpeg(path, is_full)
                 };

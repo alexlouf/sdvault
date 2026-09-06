@@ -136,28 +136,41 @@ function groupDayItems(files) {
   const groupValues = Object.values(groupedByBase);
   for (let i = 0; i < groupValues.length; i++) {
     const group = groupValues[i];
-    if (group.length === 2) {
-      const rawFile = group.find(f => f.file_type === 'raw');
-      const jpgFile = group.find(f => f.file_type === 'jpg');
-      if (rawFile && jpgFile) {
-        const dotIdx = jpgFile.name.lastIndexOf('.');
-        const bName = dotIdx !== -1 ? jpgFile.name.substring(0, dotIdx) : jpgFile.name;
-        const timestamp = jpgFile.timestamp || rawFile.timestamp || 0;
-        baseItems.push({
-          type: 'stack',
-          name: `${bName} (RAW+JPG)`,
-          files: [rawFile, jpgFile],
-          rawFile,
-          jpgFile,
-          baseKey: bName.toLowerCase(),
-          file_type: 'raw+jpg',
-          size: rawFile.size + jpgFile.size,
-          date: jpgFile.date,
-          timestamp,
-          thumbnail_url: jpgFile.thumbnail_url || rawFile.thumbnail_url
-        });
-        continue;
+    const rawFile = group.find(f => f.file_type === 'raw');
+    const jpgFile = group.find(f => f.file_type === 'jpg');
+    if (rawFile && jpgFile) {
+      const dotIdx = jpgFile.name.lastIndexOf('.');
+      const bName = dotIdx !== -1 ? jpgFile.name.substring(0, dotIdx) : jpgFile.name;
+      const timestamp = jpgFile.timestamp || rawFile.timestamp || 0;
+      baseItems.push({
+        type: 'stack',
+        name: `${bName} (RAW+JPG)`,
+        files: [rawFile, jpgFile],
+        rawFile,
+        jpgFile,
+        baseKey: bName.toLowerCase(),
+        file_type: 'raw+jpg',
+        size: rawFile.size + jpgFile.size,
+        date: jpgFile.date,
+        timestamp,
+        thumbnail_url: jpgFile.thumbnail_url || rawFile.thumbnail_url
+      });
+      for (let j = 0; j < group.length; j++) {
+        const file = group[j];
+        if (file !== rawFile && file !== jpgFile) {
+          baseItems.push({
+            type: 'single',
+            name: file.name,
+            files: [file],
+            file_type: file.file_type,
+            size: file.size,
+            date: file.date,
+            timestamp: file.timestamp || 0,
+            thumbnail_url: file.thumbnail_url
+          });
+        }
       }
+      continue;
     }
     
     for (let j = 0; j < group.length; j++) {
@@ -940,7 +953,8 @@ function openLightbox(index, direction = 0) {
   elLightboxVideo.src = "";
   
   if (item.file_type === 'video') {
-    elLightboxVideo.src = `http://vault-asset.localhost/${item.files[0].path}`;
+    const videoUrl = (item.files && item.files[0] && item.files[0].thumbnail_url) || item.thumbnail_url;
+    elLightboxVideo.src = videoUrl;
     elLightboxVideo.classList.remove("hidden");
   } else if (item.thumbnail_url) {
     const loadId = ++currentLightboxLoadId;
